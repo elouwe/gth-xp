@@ -1,0 +1,66 @@
+#include "stdlib.func";
+
+;; Константы
+const int OP_ADD_XP = 0x1234;
+const int MAX_XP = 1000000;
+
+() save_data(slice owner, cell xp_dict) impure {
+    set_data(begin_cell().store_slice(owner).store_dict(xp_dict).end_cell());
+}
+
+() init() impure {
+    slice owner = in_msg_body~load_msg_addr();
+    save_data(owner, new_dict());
+}
+
+() add_xp(slice user_address, int amount) impure {
+    [slice owner, cell dict] = load_data();
+    slice sender = in_msg_body~load_msg_addr();
+    throw_unless(35, equal_slices(owner, sender));
+    
+    cell addr_cell = begin_cell().store_slice(user_address).end_cell();
+    int key = addr_cell.hash();
+    
+    int current_xp = 0;
+    if (dict_get?(dict, key)) {
+        current_xp = dict_get(dict, key);
+    }
+    
+    throw_unless(37, current_xp + amount <= MAX_XP);
+    dict = dict_set(dict, key, current_xp + amount);
+    save_data(owner, dict);
+}
+
+(int) get_xp(slice user_address) method_id {
+    [_, cell dict] = load_data();
+    cell addr_cell = begin_cell().store_slice(user_address).end_cell();
+    int key = addr_cell.hash();
+    
+    if (dict_get?(dict, key)) {
+        return dict_get(dict, key);
+    }
+    return 0;
+}
+
+() recv_internal() {
+    if (get_data().empty?()) {
+        init();
+        return;
+    }
+
+    slice msg_body = in_msg_body.begin_parse();
+    int op = msg_body~load_uint(32);
+    
+    if (op == OP_ADD_XP) {
+        slice user = msg_body~load_msg_addr();
+        int amount = msg_body~load_uint(64);
+        add_xp(user, amount);
+    }
+}
+
+(slice, cell) load_data() {
+    slice ds = get_data().begin_parse();
+    return (ds~load_msg_addr(), ds~load_dict());
+}
+
+int equal_slices(slice a, slice b) asm "SDEQ";
