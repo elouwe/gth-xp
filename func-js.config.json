@@ -1,0 +1,6 @@
+{
+  "targets": ["contracts/xp.fc"],
+  "sources": {
+    "stdlib.fc": "./contracts/stdlib.fc"
+  }
+}

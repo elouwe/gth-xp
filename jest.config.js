@@ -1,4 +1,3 @@
-// jest.config.js
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -10,6 +9,7 @@ module.exports = {
   globals: {
     'ts-jest': {
       tsconfig: 'tsconfig.json',
-    },
-  },
+      useESM: true
+    }
+  }
 };

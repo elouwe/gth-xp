@@ -1,66 +1,153 @@
-#include "stdlib.func";
+#include "stdlib.fc";                ;; standard library
 
-;; Константы
-const int OP_ADD_XP = 0x1234;
-const int MAX_XP = 1000000;
+;; ────────────  Constants  ────────────
+const int OP_ADD_XP        = 0x1234; ;; opcode for add_xp
+const int CONTRACT_VERSION = 1;      ;; current storage layout version
+const int ERR_NOT_OWNER    = 401;    ;; sender is not owner
+const int ERR_OVERFLOW     = 402;    ;; uint64 overflow
 
-() save_data(slice owner, cell xp_dict) impure {
-    set_data(begin_cell().store_slice(owner).store_dict(xp_dict).end_cell());
-}
-
-() init() impure {
-    slice owner = in_msg_body~load_msg_addr();
-    save_data(owner, new_dict());
-}
-
-() add_xp(slice user_address, int amount) impure {
-    [slice owner, cell dict] = load_data();
-    slice sender = in_msg_body~load_msg_addr();
-    throw_unless(35, equal_slices(owner, sender));
-    
-    cell addr_cell = begin_cell().store_slice(user_address).end_cell();
-    int key = addr_cell.hash();
-    
-    int current_xp = 0;
-    if (dict_get?(dict, key)) {
-        current_xp = dict_get(dict, key);
-    }
-    
-    throw_unless(37, current_xp + amount <= MAX_XP);
-    dict = dict_set(dict, key, current_xp + amount);
-    save_data(owner, dict);
-}
-
-(int) get_xp(slice user_address) method_id {
-    [_, cell dict] = load_data();
-    cell addr_cell = begin_cell().store_slice(user_address).end_cell();
-    int key = addr_cell.hash();
-    
-    if (dict_get?(dict, key)) {
-        return dict_get(dict, key);
-    }
-    return 0;
-}
-
-() recv_internal() {
-    if (get_data().empty?()) {
-        init();
-        return;
+;; ───────────  Helpers  ────────────
+(slice, int, cell) _load_state() inline {
+    ;; read contract storage and unpack (owner | version | dict)
+    cell raw = get_data();
+    if (is_null(raw)) {
+        ;; empty storage → default values
+        return (null(), CONTRACT_VERSION, null());
     }
 
-    slice msg_body = in_msg_body.begin_parse();
-    int op = msg_body~load_uint(32);
-    
+    slice s      = raw.begin_parse();
+    slice owner  = s~load_address(); ;; owner stored as slice‑address
+    int   ver    = s~load_uint(32);
+    cell  dict   = s~load_dict();
+    return (owner, ver, dict);
+}
+
+() _store_state(slice owner, int ver, cell dict) inline impure {
+    ;; negative version is invalid
+    throw_if(300, ver < 0);
+
+    set_data(
+        begin_cell()
+            .store_address(owner)          ;; address → 267 bits
+            .store_uint(ver as uint, 32)   ;; uint32 version
+            .store_dict(dict)              ;; XP mapping
+        .end_cell()
+    );
+}
+
+;; ───────────  Constructor  ───────────
+() constructor(slice body) impure {
+    ;; payload must contain exactly one address
+    throw_if(100, slice_bits(body) < 267);
+    slice owner = body~load_address();
+    throw_if(101, slice_bits(body) != 0);  ;; no extra bits
+    throw_if(102, owner == null());        ;; zero address forbidden
+    _store_state(owner, CONTRACT_VERSION, null());
+}
+
+;; ─── Internal messages (mutating) ───
+() recv_internal(int /*msg_val*/, cell, slice body) impure {
+    accept();                             ;; pay gas from contract balance
+
+    int op = body~load_uint(32);
+
     if (op == OP_ADD_XP) {
-        slice user = msg_body~load_msg_addr();
-        int amount = msg_body~load_uint(64);
-        add_xp(user, amount);
+        int user_key = body~load_uint(256);
+        int amount   = body~load_uint(64);
+
+        ;; payload must end here and be valid
+        throw_if(199, slice_bits(body) != 0);
+        throw_if(103, user_key == 0);
+        throw_if(104, amount <= 0);
+
+        slice sender = msg_sender_addr();    ;; sender address
+        slice owner; int ver; cell dict;
+        (owner, ver, dict) = _load_state();
+
+        throw_if(ERR_NOT_OWNER, sender != owner);
+
+        slice key = begin_cell()
+                       .store_uint(user_key,256)
+                     .end_cell()
+                     .begin_parse();
+
+        slice v; slice _r1; slice _r2; int found;
+        (v,_r1,_r2,found) = pfxdict_get?(dict,256,key);
+
+        int old_xp = found ? v~load_uint(64) : 0;
+        int new_xp = old_xp + amount;
+        throw_if(ERR_OVERFLOW, new_xp < old_xp);
+
+        dict = pfxdict_set?(
+                 dict, 256, key,
+                 begin_cell().store_uint(new_xp,64).end_cell().begin_parse()
+               );
+
+        _store_state(owner, ver, dict);
     }
 }
 
-(slice, cell) load_data() {
-    slice ds = get_data().begin_parse();
-    return (ds~load_msg_addr(), ds~load_dict());
+;; ───────────  Get‑methods  ───────────
+(slice) get_xp(slice args) impure {
+    throw_if(201, slice_bits(args) < 256);
+
+    int user_key = args~load_uint(256);
+    throw_if(202, slice_bits(args) != 0);
+
+    cell raw = get_data();
+    cell dict = is_null(raw)
+        ? null()
+        : raw.begin_parse()~{ _skip_addr; _skip_ver; }~load_dict();
+
+    slice key = begin_cell()
+                   .store_uint(user_key,256)
+                 .end_cell()
+                 .begin_parse();
+
+    slice v; slice _1; slice _2; int found;
+    (v,_1,_2,found) = pfxdict_get?(dict,256,key);
+
+    int xp = found ? v~load_uint(64) : 0;
+    return begin_cell().store_uint(xp,64).end_cell().to_slice();
 }
 
-int equal_slices(slice a, slice b) asm "SDEQ";
+(slice) get_owner() impure {
+    slice owner; int _v; cell _d;
+    (owner, _v, _d) = _load_state();
+    return owner;
+}
+
+(int) get_version() impure {
+    int ver;
+    (_ , ver, _ ) = _load_state();
+    return ver;
+}
+
+;; ───── Client‑side calculators (pure math) ─────
+(int) get_level(int xp) inline {
+    throw_if(301, xp < 0);          ;; XP cannot be negative
+    return sqrt(xp) / 4;            ;; floor(0.25 * sqrt(xp))
+}
+
+(int) get_rank(int xp) inline {
+    throw_if(302, xp < 0);
+    if (xp < 100)  { return 0; }    ;; Newbie
+    if (xp < 250)  { return 1; }    ;; Contributor
+    if (xp < 500)  { return 2; }    ;; OG
+    return 3;                       ;; Trusted
+}
+
+(int) get_reputation(int xp, int d, int r, int bw) inline {
+    throw_if(310, xp < 0 || d < 0 || r < 0 || bw < 0);
+
+    int raw = xp / 10      
+            + d  * 10    
+            + r  * 10      
+            + bw * 20;     
+
+    int score = raw / 4;  
+    if (score > 100) {
+        score = 100;
+    }
+    return score;
+}
