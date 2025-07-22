@@ -1,153 +1,169 @@
-#include "stdlib.fc";                ;; standard library
+#include "stdlib.fc";
 
-;; ────────────  Constants  ────────────
-const int OP_ADD_XP        = 0x1234; ;; opcode for add_xp
-const int CONTRACT_VERSION = 1;      ;; current storage layout version
-const int ERR_NOT_OWNER    = 401;    ;; sender is not owner
-const int ERR_OVERFLOW     = 402;    ;; uint64 overflow
+;; ──────────────  Constants  ──────────────
+const int OP_ADD_XP        = 0x1234;
+const int CONTRACT_VERSION = 1;
+const int ERR_NOT_OWNER    = 401;
+const int ERR_OVERFLOW     = 402;
 
-;; ───────────  Helpers  ────────────
+;; ────────────  Storage Helpers  ──────────
 (slice, int, cell) _load_state() inline {
-    ;; read contract storage and unpack (owner | version | dict)
     cell raw = get_data();
-    if (is_null(raw)) {
-        ;; empty storage → default values
+    if (null?(raw)) {
         return (null(), CONTRACT_VERSION, null());
     }
 
-    slice s      = raw.begin_parse();
-    slice owner  = s~load_address(); ;; owner stored as slice‑address
-    int   ver    = s~load_uint(32);
-    cell  dict   = s~load_dict();
+    slice s     = raw.begin_parse();
+    slice owner = s~load_msg_addr();
+    int   ver   = s~load_uint(32);
+    cell  dict  = s~load_dict();
+
     return (owner, ver, dict);
 }
 
-() _store_state(slice owner, int ver, cell dict) inline impure {
-    ;; negative version is invalid
+() _store_state(slice owner, int ver, cell dict) impure inline {
     throw_if(300, ver < 0);
 
     set_data(
         begin_cell()
-            .store_address(owner)          ;; address → 267 bits
-            .store_uint(ver as uint, 32)   ;; uint32 version
-            .store_dict(dict)              ;; XP mapping
+            .store_slice(owner)
+            .store_uint(ver, 32)
+            .store_dict(dict)
         .end_cell()
     );
 }
 
-;; ───────────  Constructor  ───────────
+;; ─────────────  Constructor  ─────────────
 () constructor(slice body) impure {
-    ;; payload must contain exactly one address
     throw_if(100, slice_bits(body) < 267);
-    slice owner = body~load_address();
-    throw_if(101, slice_bits(body) != 0);  ;; no extra bits
-    throw_if(102, owner == null());        ;; zero address forbidden
+
+    slice owner = body~load_msg_addr();
+    throw_if(101, slice_bits(body) != 0);
+    throw_if(102, null?(owner));
+
     _store_state(owner, CONTRACT_VERSION, null());
 }
 
-;; ─── Internal messages (mutating) ───
-() recv_internal(int /*msg_val*/, cell, slice body) impure {
-    accept();                             ;; pay gas from contract balance
+;; ────────  Internal Messages Receive  ───────
+() recv_internal(int _msg_val, cell msg, slice body) impure {
+    accept_message();
 
     int op = body~load_uint(32);
 
     if (op == OP_ADD_XP) {
+        ;; ─── Read arguments ───
         int user_key = body~load_uint(256);
-        int amount   = body~load_uint(64);
-
-        ;; payload must end here and be valid
-        throw_if(199, slice_bits(body) != 0);
-        throw_if(103, user_key == 0);
+        int amount   = body~load_uint(32);
         throw_if(104, amount <= 0);
 
-        slice sender = msg_sender_addr();    ;; sender address
-        slice owner; int ver; cell dict;
-        (owner, ver, dict) = _load_state();
+        ;; ─── Get sender address ───
+        slice cs = msg.begin_parse();
+        int   _flags  = cs~load_uint(4);
+        slice sender  = cs~load_msg_addr();
+        int   _value  = cs~load_coins();
+        int   _lt     = cs~load_uint(64);
+        int   _at     = cs~load_uint(32);
 
-        throw_if(ERR_NOT_OWNER, sender != owner);
+        ;; ─── Validate owner rights ───
+        (slice owner, int ver, cell dict) = _load_state();
+        int sender_h = slice_hash(sender);
+        int owner_h  = slice_hash(owner);
+        throw_if(ERR_NOT_OWNER, sender_h != owner_h);
 
-        slice key = begin_cell()
-                       .store_uint(user_key,256)
-                     .end_cell()
-                     .begin_parse();
+        ;; ─── Update XP ───
+        slice key = begin_cell().store_uint(user_key, 256).end_cell().begin_parse();
 
-        slice v; slice _r1; slice _r2; int found;
-        (v,_r1,_r2,found) = pfxdict_get?(dict,256,key);
+        (slice v, slice _r1, slice _r2, int found) = pfxdict_get?(dict, 256, key);
 
         int old_xp = found ? v~load_uint(64) : 0;
         int new_xp = old_xp + amount;
         throw_if(ERR_OVERFLOW, new_xp < old_xp);
 
-        dict = pfxdict_set?(
-                 dict, 256, key,
-                 begin_cell().store_uint(new_xp,64).end_cell().begin_parse()
-               );
+        (dict, _) = pfxdict_set?(
+            dict, 256, key,
+            begin_cell().store_uint(new_xp, 64).end_cell().begin_parse()
+        );
 
         _store_state(owner, ver, dict);
     }
 }
 
-;; ───────────  Get‑methods  ───────────
+;; ─────────────  Get Methods  ─────────────
 (slice) get_xp(slice args) impure {
+    ;; Check input
     throw_if(201, slice_bits(args) < 256);
-
     int user_key = args~load_uint(256);
     throw_if(202, slice_bits(args) != 0);
 
-    cell raw = get_data();
-    cell dict = is_null(raw)
-        ? null()
-        : raw.begin_parse()~{ _skip_addr; _skip_ver; }~load_dict();
+    ;; Read persistent state
+    (slice _, int __, cell dict) = _load_state();
 
+    ;; Extract XP for specific user
     slice key = begin_cell()
-                   .store_uint(user_key,256)
-                 .end_cell()
-                 .begin_parse();
+        .store_uint(user_key, 256)
+        .end_cell()
+        .begin_parse();
 
-    slice v; slice _1; slice _2; int found;
-    (v,_1,_2,found) = pfxdict_get?(dict,256,key);
+    (slice v, slice _1, slice _2, int found) =
+        pfxdict_get?(dict, 256, key);
 
     int xp = found ? v~load_uint(64) : 0;
-    return begin_cell().store_uint(xp,64).end_cell().to_slice();
+        return begin_cell()
+        .store_uint(xp, 64)
+        .end_cell()        ;; Return as cell
+        .begin_parse();    ;; Convert to slice
 }
 
 (slice) get_owner() impure {
-    slice owner; int _v; cell _d;
-    (owner, _v, _d) = _load_state();
+    (slice owner, int ver, cell dict) = _load_state();
     return owner;
 }
 
 (int) get_version() impure {
-    int ver;
-    (_ , ver, _ ) = _load_state();
+    (slice __, int ver, cell ___) = _load_state();
     return ver;
 }
 
-;; ───── Client‑side calculators (pure math) ─────
+;; ────────  Client-side Calculators  ──────
+(int) isqrt(int x) inline {
+    throw_if(302, x < 0);
+
+    int bit = 1 << 30;          ;; Find highest square
+    int r   = 0;
+
+    while (bit > x) {
+        bit = bit >> 2;
+    }
+
+    while (bit != 0) {
+        if (x >= r + bit) {
+            x  = x - (r + bit);
+            r  = (r >> 1) + bit;
+        } else {
+            r  = r >> 1;
+        }
+        bit = bit >> 2;
+    }
+    return r;
+}
+
 (int) get_level(int xp) inline {
-    throw_if(301, xp < 0);          ;; XP cannot be negative
-    return sqrt(xp) / 4;            ;; floor(0.25 * sqrt(xp))
+    throw_if(301, xp < 0);
+    return isqrt(xp) / 4;
 }
 
 (int) get_rank(int xp) inline {
     throw_if(302, xp < 0);
-    if (xp < 100)  { return 0; }    ;; Newbie
-    if (xp < 250)  { return 1; }    ;; Contributor
-    if (xp < 500)  { return 2; }    ;; OG
-    return 3;                       ;; Trusted
+    if (xp < 100)  { return 0; }
+    if (xp < 250)  { return 1; }
+    if (xp < 500)  { return 2; }
+    return 3;
 }
 
 (int) get_reputation(int xp, int d, int r, int bw) inline {
-    throw_if(310, xp < 0 || d < 0 || r < 0 || bw < 0);
-
-    int raw = xp / 10      
-            + d  * 10    
-            + r  * 10      
-            + bw * 20;     
-
-    int score = raw / 4;  
-    if (score > 100) {
-        score = 100;
-    }
+    throw_if(310, (xp < 0) | (d < 0) | (r < 0) | (bw < 0));
+    int raw = (xp / 10) + (d * 10) + (r * 10) + (bw * 20);
+    int score = raw / 4;
+    if (score > 100) { score = 100; }
     return score;
 }
