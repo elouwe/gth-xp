@@ -1,9 +1,11 @@
+// scripts/compile.ts
 import { compileFunc } from "@ton-community/func-js";
 import { Cell } from "@ton/core";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
+import { NetworkProvider } from '@ton/blueprint'; 
 
-async function main() {
+export async function run(provider: NetworkProvider) { 
   const root = process.cwd();
   const contracts = path.join(root, "contracts");
   const buildDir = path.join(root, "build");
@@ -19,15 +21,10 @@ async function main() {
 
   if (result.status === "error") {
     console.error("❌ FunC error:", result.message);
-    process.exit(1);
+    throw new Error("Compilation failed"); 
   }
 
   const cell = Cell.fromBoc(Buffer.from(result.codeBoc, "base64"))[0];
   writeFileSync(path.join(buildDir, "xp.compiled.cell"), cell.toBoc());
   console.log("✅ Contract compiled → build/xp.compiled.cell");
 }
-
-main().catch((e) => {
-  console.error("🔥 Compile script crashed:", e);
-  process.exit(1);
-});

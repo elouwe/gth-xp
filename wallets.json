@@ -1,10 +1,15 @@
 {
   "owner": {
-    "mnemonic": "festival guard ramp pistol floor neck husband warm thrive since odor pioneer wife awesome involve can mask panther tree muscle agree tomato fog leader",
-    "address": "EQDHcj_ROTU5mYqN3VS_75zwpqsrc4-7bFwGOocHobIf-AlT"
+    "mnemonic": "demand alien say behave guitar into twist holiday cycle wealth enough grab food motor subject analyst keen edge trophy heart barely potato artist provide",
+    "address": "kQDowbs7BmVs85p8AnlJiYaFZPAp9v1_2W2xSDEiU7s6Lwew",
+    "addressNonBounce": "0QDowbs7BmVs85p8AnlJiYaFZPAp9v1_2W2xSDEiU7s6L1p1",
+    "publicKey": "f76418e7de62cd7f2b282428fa76e1f277fe793b0b51c149ae662d905c5e2ab2"
   },
   "user": {
-    "mnemonic": "few peasant web protect mosquito mom hello bridge praise reject earth boat sign ripple lottery scrap act lawsuit tip lonely bless broom stick right",
-    "address": "EQDCCRakzB7Gy7CG9weHrBcCXaf2M7cGMklAihCJ0QzbyC-R"
-  }
+    "mnemonic": "scout symbol bleak pudding dizzy beyond click forest finish federal tag theory treat pudding actor toe science level bulk rely purse crisp analyst later",
+    "address": "kQDjlIK-7JIGCGxVFKIiF8VRuFkJYFM9SXpxd0TPzyxPxw7T",
+    "addressNonBounce": "0QDjlIK-7JIGCGxVFKIiF8VRuFkJYFM9SXpxd0TPzyxPx1MW",
+    "publicKey": "99865ac96bc01ea0e26f4cd234f6c6091963a347fa64a54e7a682b1f7d1acd05"
+  },
+  "contract": "EQACJnKiW6kE2zqu6VpCTcEGvrqx_x0MQwX0lLzM0jAS3LJE"
 }

@@ -1,6 +1,11 @@
-import { CompilerConfig } from '@ton/blueprint';
+import { Config } from '@ton/blueprint';
 
-export default {
-    lang: 'func',
-    targets: ['contracts/xp.fc'],
-} as CompilerConfig;
+export const config: Config = {
+  network: {
+    type:     'testnet',
+    endpoint: 'https://testnet.toncenter.com/api/v2',
+    version:  'v2',
+    key:      process.env.TONCENTER_KEY,
+  },
+
+};
