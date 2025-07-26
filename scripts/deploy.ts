@@ -6,25 +6,21 @@ import { Address, WalletContractV4, TonClient, toNano } from '@ton/ton';
 import { mnemonicToWalletKey } from '@ton/crypto';
 import wallets from '../wallets.json';
 import { writeFileSync } from 'fs';
-import { fromNano } from '@ton/core'; // Added for balance formatting
+import { fromNano } from '@ton/core';
 
-// Utility for waiting between checks
 function delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function run(provider: NetworkProvider) {
-    // Load owner wallet data from wallets.json
     const ownerWallet = wallets.owner;
     if (!ownerWallet || !ownerWallet.mnemonic) {
         throw new Error('Owner wallet mnemonic missing in wallets.json');
     }
     
-    // Derive key pair from mnemonic
     const words = ownerWallet.mnemonic.split(' ');
     const keyPair = await mnemonicToWalletKey(words);
     
-    // Create wallet contract (v4)
     const wallet = WalletContractV4.create({
         workchain: 0,
         publicKey: keyPair.publicKey
@@ -33,32 +29,26 @@ export async function run(provider: NetworkProvider) {
     const walletAddress = wallet.address;
     console.log('✅ Owner wallet address:', walletAddress.toString());
     
-    // Open wallet and prepare sender
     const walletContract = provider.open(wallet);
     const sender = walletContract.sender(keyPair.secretKey);
     
-    // Initialize TON client with appropriate endpoint
     const client = new TonClient({
         endpoint: provider.network() === 'mainnet' 
             ? 'https://mainnet.tonhubapi.com' 
             : 'https://testnet.toncenter.com/api/v2/jsonRPC'
     });
     
-    // Check and display wallet balance
     const balance = await client.getBalance(walletAddress);
     console.log(`💰 Wallet balance: ${balance} nanoton (${fromNano(balance)} TON)`);
     
-    // Verify sufficient deployment funds
     if (balance < toNano('0.05')) {
         throw new Error(`Insufficient balance. Send 0.05+ TON to ${walletAddress.toString()}`);
     }
     
-    // Compile contract code
     const code = await compile('xp');
     const contract = XPContract.createForDeploy(code, walletAddress);
     const opened = provider.open(contract);
 
-    // Deploy contract
     console.log('Deploying contract...');
     try {
         await opened.sendDeploy(sender);
@@ -68,12 +58,11 @@ export async function run(provider: NetworkProvider) {
         throw error;
     }
 
-    // Verify contract deployment status
     let attempt = 1;
-    const maxAttempts = 20;
+    const maxAttempts = 30; // Increased from 20 to 30
     while (attempt <= maxAttempts) {
         process.stdout.write(`\r⏳ Checking deployment status (${attempt}/${maxAttempts})...`);
-        await delay(2000);
+        await delay(3000); // Increased from 2000 to 3000
         
         const isDeployed = await client.isContractDeployed(opened.address);
         if (isDeployed) {
@@ -88,7 +77,6 @@ export async function run(provider: NetworkProvider) {
         throw new Error('Deployment confirmation timeout');
     }
 
-    // Save contract address to wallets.json
     const updatedWallets = { 
         ...wallets, 
         contract: opened.address.toString() 

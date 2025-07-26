@@ -1,3 +1,4 @@
+// scripts/check-balance.ts
 import { Address, fromNano } from '@ton/core';
 import { NetworkProvider } from '@ton/blueprint';
 import { readFileSync } from 'fs';

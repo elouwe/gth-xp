@@ -26,5 +26,5 @@ export async function run(provider: NetworkProvider) {
 
   const cell = Cell.fromBoc(Buffer.from(result.codeBoc, "base64"))[0];
   writeFileSync(path.join(buildDir, "xp.compiled.cell"), cell.toBoc());
-  console.log("✅ Contract compiled → build/xp.compiled.cell");
+  console.log("✅ Contract compiled > build/xp.compiled.cell");
 }
