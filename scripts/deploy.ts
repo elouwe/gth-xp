@@ -1,4 +1,3 @@
-// scripts/deploy.ts
 import { compile } from '@ton/blueprint';
 import { XPContract } from '../wrappers/XPContract';
 import { NetworkProvider } from '@ton/blueprint';
@@ -15,7 +14,7 @@ function delay(ms: number) {
 export async function run(provider: NetworkProvider) {
     const ownerWallet = wallets.owner;
     if (!ownerWallet || !ownerWallet.mnemonic) {
-        throw new Error('Owner wallet mnemonic missing in wallets.json');
+        throw new Error('Owner wallet mnemonic missing');
     }
     
     const words = ownerWallet.mnemonic.split(' ');
@@ -39,7 +38,7 @@ export async function run(provider: NetworkProvider) {
     });
     
     const balance = await client.getBalance(walletAddress);
-    console.log(`💰 Wallet balance: ${balance} nanoton (${fromNano(balance)} TON)`);
+    console.log(`💰 Wallet balance: ${fromNano(balance)} TON`);
     
     if (balance < toNano('0.05')) {
         throw new Error(`Insufficient balance. Send 0.05+ TON to ${walletAddress.toString()}`);
@@ -49,7 +48,7 @@ export async function run(provider: NetworkProvider) {
     const contract = XPContract.createForDeploy(code, walletAddress);
     const opened = provider.open(contract);
 
-    console.log('Deploying contract...');
+    console.log('Deploying contract (v4)...');
     try {
         await opened.sendDeploy(sender);
         console.log('✅ Deployment transaction sent');
@@ -59,10 +58,10 @@ export async function run(provider: NetworkProvider) {
     }
 
     let attempt = 1;
-    const maxAttempts = 30; // Increased from 20 to 30
+    const maxAttempts = 30;
     while (attempt <= maxAttempts) {
         process.stdout.write(`\r⏳ Checking deployment status (${attempt}/${maxAttempts})...`);
-        await delay(3000); // Increased from 2000 to 3000
+        await delay(3000);
         
         const isDeployed = await client.isContractDeployed(opened.address);
         if (isDeployed) {

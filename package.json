@@ -1,6 +1,6 @@
 {
   "name": "gotham-xp-contract",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "scripts": {
     "build": "ts-node scripts/compile.ts",
     "test": "jest --config jest.config.js",
@@ -8,10 +8,12 @@
     "deploy": "ts-node scripts/deploy.ts",
     "add-xp": "ts-node scripts/add-xp.ts",
     "get-xp": "ts-node scripts/get-xp.ts",
+    "get-history": "ts-node scripts/get-history.ts",
     "deploy:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run deploy --testnet --mnemonic",
-    "compile:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run compile --testnet --mnemonic",
     "add-xp:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run add-xp --testnet --mnemonic",
-    "get-xp:testnet": "USER_ADDR=$(node -pe \"require('./wallets.json').user.address\") WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run get-xp --testnet --mnemonic"
+    "get-xp:testnet": "USER_ADDR=$(node -pe \"require('./wallets.json').user.address\") WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run get-xp --testnet --mnemonic",
+    "get-history:testnet": "USER_ADDR=$(node -pe \"require('./wallets.json').user.address\") WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run get-history --testnet --mnemonic",
+    "compile:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run compile --testnet --mnemonic"
   },
   "devDependencies": {
     "@tact-lang/compiler": ">=1.6.13 <2.0.0",

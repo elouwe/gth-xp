@@ -1,94 +1,164 @@
 #include "stdlib.fc";
 
 ;; ───────── Constants ─────────
-const int OP_ADD_XP        = 0x1234;
-const int CONTRACT_VERSION = 1;
-const int ERR_NOT_OWNER    = 401;  ;; Not contract owner
-const int ERR_OVERFLOW     = 402;  ;; XP overflow error
-const int ERR_TOO_SOON     = 403;  ;; Operation called too soon
-const int MIN_TIMEOUT      = 60;   ;; 1 minute in seconds
+const int OP_ADD_XP         = 0x1234;
+const int OP_ADD_XP_WITH_ID = 0x5678;
+const int CONTRACT_VERSION  = 4;  ;; Bumped version
+const int ERR_NOT_OWNER     = 401;
+const int ERR_OVERFLOW      = 402;
+const int ERR_TOO_SOON      = 403;
+const int ERR_INVALID_OP    = 404;
+const int MIN_TIMEOUT       = 60;
+const int MAX_HISTORY       = 100;
+const int MAX_XP_PER_OP     = 1000000;
+
+const int KEY_LEN = 256;
 
 ;; ─────── Storage Helpers ───────
-(slice, int, int, cell) _load_state() inline {
+(slice, int, int, cell, cell) _load_state() inline {
     cell raw = get_data();
     if (null?(raw)) {
-        return (null(), CONTRACT_VERSION, 0, null());
+        return (null(), CONTRACT_VERSION, 0, null(), null());
     }
     slice s     = raw.begin_parse();
     slice owner = s~load_msg_addr();
     int   ver   = s~load_uint(16);
-    int   last_op_time = s~load_uint(32);
-    cell  dict  = s~load_dict();
-    return (owner, ver, last_op_time, dict);
+    int   last_op_time = s~load_uint(64);  ;; 64-bit timestamp
+    cell  balance_dict = s~load_dict();
+    cell  history_dict = s~load_dict();
+    return (owner, ver, last_op_time, balance_dict, history_dict);
 }
 
-() _store_state(slice owner, int ver, int last_op_time, cell dict) impure inline {
+() _store_state(slice owner, int ver, int last_op_time, cell balance_dict, cell history_dict) impure inline {
     set_data(
         begin_cell()
             .store_slice(owner)
             .store_uint(ver, 16)
-            .store_uint(last_op_time, 32)
-            .store_dict(dict)
+            .store_uint(last_op_time, 64)  ;; 64-bit timestamp
+            .store_dict(balance_dict)
+            .store_dict(history_dict)
         .end_cell()
     );
 }
 
+;; ─────── Helpers: dict utils ───────
+(int, int) dict_len_and_oldest_key(cell d) inline {
+    int n = 0;
+    int oldest_key = 0;
+    int oldest_time = 2147483647;
+
+    (int k, slice v, int ok) = d.udict_get_min?(KEY_LEN);
+    while (ok) {
+        slice vs = v;
+        int amount = vs~load_uint(64);
+        int ts = vs~load_uint(64);  ;; 64-bit timestamp
+        if (ts < oldest_time) {
+            oldest_time = ts;
+            oldest_key = k;
+        }
+        n += 1;
+        (k, v, ok) = d.udict_get_next?(KEY_LEN, k);
+    }
+    return (n, oldest_key);
+}
+
+cell trim_history_if_needed(cell d, int max) inline {
+    var (n, oldest_key) = dict_len_and_oldest_key(d);
+    if (n > max) {
+        (cell nd, int del_ok) = d.udict_delete?(KEY_LEN, oldest_key);
+        d = nd;
+    }
+    return d;
+}
+
+int generate_op_id(int tx_hash, int timestamp) inline {
+    cell c = begin_cell()
+        .store_uint(tx_hash, 256)
+        .store_uint(timestamp, 64)
+        .end_cell();
+    return cell_hash(c);
+}
+
 ;; ───────── Entry Point ─────────
 () recv_internal(int msg_value, cell in_msg, slice in_body) impure {
-    int now = now();
-    
+    int ts = now();
+    int tx_hash = cell_hash(in_msg);
+
     if (slice_bits(in_body) == 0) {
         accept_message();
         slice cs     = in_msg.begin_parse();
-        cs~load_uint(4);         ;; skip flags
+        cs~load_uint(4);
         slice sender = cs~load_msg_addr();
-        cs~load_coins();          ;; skip value
-        cs~load_uint(64);         ;; skip lt
-        cs~load_uint(32);         ;; skip now
-        var (owner0, ver0, last_op0, dict0) = _load_state();
+        cs~load_coins();
+        cs~load_uint(64);
+        cs~load_uint(32);
+        var (owner0, ver0, last_op0, balance_dict0, history_dict0) = _load_state();
         if (slice_bits(owner0) == 0) {
-            ;; Initialize with last_op_time = 0
-            _store_state(sender, CONTRACT_VERSION, 0, dict0);
+            _store_state(sender, CONTRACT_VERSION, 0, balance_dict0, history_dict0);
         }
         return ();
     }
-    
-    ;; Read opcode and skip 4-bit flags
+
     int op = in_body~load_uint(32);
     in_body~load_uint(4);
 
-    if (op == OP_ADD_XP) {
+    if ((op == OP_ADD_XP) | (op == OP_ADD_XP_WITH_ID)) {
         slice user_addr = in_body~load_msg_addr();
         int   amount    = in_body~load_uint(64);
+        int   op_id     = 0;
+
+        throw_unless(ERR_OVERFLOW, amount <= MAX_XP_PER_OP);
+
+        if (op == OP_ADD_XP_WITH_ID) {
+            op_id = in_body~load_uint(256);
+        } else {
+            op_id = generate_op_id(tx_hash, ts);
+        }
 
         slice cs     = in_msg.begin_parse();
-        cs~load_uint(4);         ;; skip flags
+        cs~load_uint(4);
         slice sender = cs~load_msg_addr();
-        cs~load_coins();          ;; skip value
-        cs~load_uint(64);         ;; skip lt
-        cs~load_uint(32);         ;; skip now
+        cs~load_coins();
+        cs~load_uint(64);
+        cs~load_uint(32);
 
-        var (owner, ver, last_op_time, dict) = _load_state();
+        var (owner, ver, last_op_time, balance_dict, history_dict) = _load_state();
         throw_unless(ERR_NOT_OWNER, sender.slice_hash() == owner.slice_hash());
-        
-        ;; Enforce cooldown period after first operation
+
         if (last_op_time > 0) {
-            throw_unless(ERR_TOO_SOON, now - last_op_time >= MIN_TIMEOUT);
+            throw_unless(ERR_TOO_SOON, ts - last_op_time >= MIN_TIMEOUT);
         }
         accept_message();
 
-        int key = user_addr.slice_hash();
-        var (v, found) = dict.udict_get?(256, key);
+        int user_key = user_addr.slice_hash();
+
+        var (v, found) = balance_dict.udict_get?(KEY_LEN, user_key);
         int old_xp = found ? v~load_uint(64) : 0;
         int new_xp = old_xp + amount;
-        throw_unless(ERR_OVERFLOW, new_xp >= old_xp);       ;; Check overflow
-        throw_unless(ERR_OVERFLOW, new_xp <= 18446744073709551615);  ;; Max uint64
+        throw_unless(ERR_OVERFLOW, new_xp >= old_xp);
+        throw_unless(ERR_OVERFLOW, new_xp <= 18446744073709551615);
         builder b = begin_cell().store_uint(new_xp, 64);
-        dict = dict.udict_set_builder(256, key, b);
-        
-        ;; Update last operation timestamp
-        _store_state(owner, ver, now, dict);
+        balance_dict = balance_dict.udict_set_builder(KEY_LEN, user_key, b);
+
+        var (user_history, user_found) = history_dict.udict_get_ref?(KEY_LEN, user_key);
+        if (null?(user_history)) {
+            user_history = new_dict();
+        }
+
+        builder op_builder = begin_cell()
+            .store_uint(amount, 64)
+            .store_uint(ts, 64)  ;; 64-bit timestamp
+            .store_uint(op_id, 256);
+
+        user_history = user_history.udict_set_builder(KEY_LEN, op_id, op_builder);
+        user_history = trim_history_if_needed(user_history, MAX_HISTORY);
+        history_dict = history_dict.udict_set_ref(KEY_LEN, user_key, user_history);
+
+        _store_state(owner, ver, ts, balance_dict, history_dict);
+        return ();
     }
+
+    throw(ERR_INVALID_OP);
 }
 
 ;; ───────── Get Methods ─────────
@@ -97,60 +167,39 @@ const int MIN_TIMEOUT      = 60;   ;; 1 minute in seconds
     try {
         slice user_addr = args~load_msg_addr();
         int key = user_addr.slice_hash();
-        var (_o, _v, _t, dict) = _load_state();
-        if (null?(dict)) { return 0; }
-        var (v, found) = dict.udict_get?(256, key);
+        var (_o, _v, _t, balance_dict, _h) = _load_state();
+        if (null?(balance_dict)) { return 0; }
+        var (v, found) = balance_dict.udict_get?(KEY_LEN, key);
         return found ? v~load_uint(64) : 0;
     } catch (e) {
         return 0;
     }
 }
 
-(int) get_xp_by_key(slice args) impure method_id {
-    int key = args~load_uint(256);
-    var (_o,_v, _t, dict) = _load_state();
-    if (null?(dict)) { return 0; }
-    var (v,found) = dict.udict_get?(256, key);
-    return found ? v~load_uint(64) : 0;
+(cell) get_user_history(slice args) impure method_id {
+    if (slice_bits(args) == 0) { return null(); }
+    slice user_addr = args~load_msg_addr();
+    int key = user_addr.slice_hash();
+    var (_o, _v, _t, _b, history_dict) = _load_state();
+    var (history, found) = history_dict.udict_get_ref?(KEY_LEN, key);
+    return found ? history : null();
 }
 
 (slice) get_owner() impure method_id {
-    var (owner, _v, _t, _d) = _load_state();
+    var (owner, _v, _t, _d, _h) = _load_state();
     return owner;
 }
 
 (int) get_version() impure method_id {
-    var (_o, ver, _t, _d) = _load_state();
+    var (_o, ver, _t, _d, _h) = _load_state();
     return ver;
 }
 
 (int) get_last_op_time() impure method_id {
-    var (_o, _v, last_op_time, _d) = _load_state();
+    var (_o, _v, last_op_time, _d, _h) = _load_state();
     return last_op_time;
 }
 
-(int) get_level(int xp) impure method_id {
-    throw_unless(301, xp >= 0);  ;; XP cannot be negative
-    if (xp < 100)  { return 0; }
-    if (xp < 250)  { return 1; }
-    if (xp < 500)  { return 2; }
-    return 3;
-}
-
-(int) get_rank(int xp) impure method_id {
-    return get_level(xp);
-}
-
-(int) get_reputation(int xp, int d, int r, int bw) impure method_id {
-    ;; Validate input parameters
-    throw_unless(310, (xp >= 0) & (d >= 0) & (r >= 0) & (bw >= 0));
-    int score = (xp / 10) + (d * 2) + (r * 5) - (bw * 10) + 18;
-    if (score < 0)  { score = 0; }     ;; Clamp minimum
-    if (score > 100){ score = 100; }   ;; Clamp maximum
-    return score;
-}
-
-;; ───────── Debug Method ─────────
 (int) get_xp_key(slice args) impure method_id {
     if (slice_bits(args) == 0) { return 0; }
     slice user_addr = args~load_msg_addr();

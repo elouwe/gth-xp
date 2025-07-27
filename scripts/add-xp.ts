@@ -1,11 +1,11 @@
-// scripts/add-xp.ts
-import { Address } from '@ton/core';
+import { Address, toNano, fromNano } from '@ton/core';
 import { NetworkProvider } from '@ton/blueprint';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { XPContract } from '../wrappers/XPContract';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import { WalletContractV4 } from '@ton/ton';
+import { randomBytes } from 'crypto';
 
 interface Wallets {
   contract: string;
@@ -39,9 +39,14 @@ function calculateDelay(lastOpTime: number): number {
   const now = Math.floor(Date.now() / 1000);
   const elapsed = now - lastOpTime;
   
-  if (elapsed < 60) return 10000; // 10 seconds if last op < 1 min ago
-  if (elapsed < 300) return 5000; // 5 seconds if last op < 5 min ago
-  return 2000; // 2 seconds otherwise
+  if (elapsed < 60) return 10000;
+  if (elapsed < 300) return 5000;
+  return 2000;
+}
+
+function generateOpId(): bigint {
+  const buffer = randomBytes(32);
+  return BigInt('0x' + buffer.toString('hex'));
 }
 
 export async function run(provider: NetworkProvider) {
@@ -49,7 +54,7 @@ export async function run(provider: NetworkProvider) {
   if (!contract || !owner.mnemonic) throw new Error('Invalid wallets.json');
 
   const contractAddr = Address.parse(contract);
-  const userAddr = Address.parse(user.address); // Use bounceable address
+  const userAddr = Address.parse(user.address);
 
   const words = owner.mnemonic.split(' ');
   const { publicKey, secretKey } = await mnemonicToPrivateKey(words);
@@ -58,38 +63,45 @@ export async function run(provider: NetworkProvider) {
   const wc = provider.open(wallet);
   const sender = wc.sender(secretKey);
 
+  const walletBalance = await wc.getBalance();
+  if (walletBalance < toNano('0.3')) {
+    throw new Error(`Insufficient balance: ${fromNano(walletBalance)} TON, need at least 0.3 TON`);
+  }
+
   const xp = XPContract.createFromAddress(contractAddr);
   const opened = provider.open(xp);
 
-  // Get last operation time
   const lastOpTime = Number(await opened.getLastOpTime());
   const delay = calculateDelay(lastOpTime);
   
   console.log(`⏳ Last operation: ${lastOpTime}, waiting ${delay}ms...`);
   await new Promise(r => setTimeout(r, delay));
 
+  const opId = generateOpId();
+  console.log(`🔑 Generated OP ID: ${opId.toString()}`);
+
   console.log('🔨 Sending addXP...');
   await withRetry(async () => {
-    await opened.sendAddXP(sender, { user: userAddr, amount: 1n });
+    await opened.sendAddXP(sender, { 
+      user: userAddr, 
+      amount: 1n,
+      opId
+    });
   }, 3, 3000);
 
   console.log('✅ TX sent, waiting for confirmation...');
-  
-  // Wait 30 seconds for confirmation
   await new Promise(r => setTimeout(r, 30000));
 
-  // Check balance with retries
-  let balance = 0n;
+  let xpBalance = 0n;
   for (let i = 0; i < 5; i++) {
-    balance = await opened.getXP(userAddr);
-    if (balance > 0n) {
-      console.log(`✅ Balance updated: ${balance}`);
+    xpBalance = await opened.getXP(userAddr);
+    if (xpBalance > 0n) {
+      console.log(`✅ Balance updated: ${xpBalance}`);
       break;
     }
     console.log(`⏳ Balance not updated yet, retrying in 5s... (${i+1}/5)`);
     await new Promise(r => setTimeout(r, 5000));
   }
 
-  console.log('🔑 Key after add:', (await opened.getXPKey(userAddr)).toString());
-  console.log('🎯 Final balance:', balance.toString());
+  console.log('🎯 Final balance:', xpBalance.toString());
 }

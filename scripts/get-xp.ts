@@ -1,4 +1,3 @@
-// scripts/get-xp.ts
 import { Address } from '@ton/core';
 import { NetworkProvider } from '@ton/blueprint';
 import { readFileSync } from 'fs';
@@ -31,7 +30,5 @@ export async function run(provider: NetworkProvider) {
   console.log('🔐 Owner:    ', (await opened.getOwner()).toString());
   console.log('ℹ️ Version:  ', (await opened.getVersion()).toString());
   console.log('✅ Balance:  ', (await opened.getXP(userAddr)).toString());
-  
-  // Added last operation time
   console.log('⏰ Last Op:  ', (await opened.getLastOpTime()).toString());
 }
