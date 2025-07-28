@@ -9,6 +9,7 @@
     "add-xp": "ts-node scripts/add-xp.ts",
     "get-xp": "ts-node scripts/get-xp.ts",
     "get-history": "ts-node scripts/get-history.ts",
+    "upgrade:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run upgrade --testnet --mnemonic",
     "deploy:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run deploy --testnet --mnemonic",
     "add-xp:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run add-xp --testnet --mnemonic",
     "get-xp:testnet": "USER_ADDR=$(node -pe \"require('./wallets.json').user.address\") WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run get-xp --testnet --mnemonic",

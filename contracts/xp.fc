@@ -3,7 +3,8 @@
 ;; ───────── Constants ─────────
 const int OP_ADD_XP         = 0x1234;
 const int OP_ADD_XP_WITH_ID = 0x5678;
-const int CONTRACT_VERSION  = 4;  ;; Bumped version
+const int OP_UPGRADE        = 0x8765;
+const int CONTRACT_VERSION  = 4;
 const int ERR_NOT_OWNER     = 401;
 const int ERR_OVERFLOW      = 402;
 const int ERR_TOO_SOON      = 403;
@@ -23,7 +24,7 @@ const int KEY_LEN = 256;
     slice s     = raw.begin_parse();
     slice owner = s~load_msg_addr();
     int   ver   = s~load_uint(16);
-    int   last_op_time = s~load_uint(64);  ;; 64-bit timestamp
+    int   last_op_time = s~load_uint(64);
     cell  balance_dict = s~load_dict();
     cell  history_dict = s~load_dict();
     return (owner, ver, last_op_time, balance_dict, history_dict);
@@ -34,7 +35,7 @@ const int KEY_LEN = 256;
         begin_cell()
             .store_slice(owner)
             .store_uint(ver, 16)
-            .store_uint(last_op_time, 64)  ;; 64-bit timestamp
+            .store_uint(last_op_time, 64)
             .store_dict(balance_dict)
             .store_dict(history_dict)
         .end_cell()
@@ -51,7 +52,7 @@ const int KEY_LEN = 256;
     while (ok) {
         slice vs = v;
         int amount = vs~load_uint(64);
-        int ts = vs~load_uint(64);  ;; 64-bit timestamp
+        int ts = vs~load_uint(64);
         if (ts < oldest_time) {
             oldest_time = ts;
             oldest_key = k;
@@ -147,7 +148,7 @@ int generate_op_id(int tx_hash, int timestamp) inline {
 
         builder op_builder = begin_cell()
             .store_uint(amount, 64)
-            .store_uint(ts, 64)  ;; 64-bit timestamp
+            .store_uint(ts, 64)
             .store_uint(op_id, 256);
 
         user_history = user_history.udict_set_builder(KEY_LEN, op_id, op_builder);
@@ -155,6 +156,22 @@ int generate_op_id(int tx_hash, int timestamp) inline {
         history_dict = history_dict.udict_set_ref(KEY_LEN, user_key, user_history);
 
         _store_state(owner, ver, ts, balance_dict, history_dict);
+        return ();
+    }
+    
+    if (op == OP_UPGRADE) {
+        slice cs     = in_msg.begin_parse();
+        cs~load_uint(4);
+        slice sender = cs~load_msg_addr();
+        
+        var (owner, ver, last_op_time, balance_dict, history_dict) = _load_state();
+        throw_unless(ERR_NOT_OWNER, sender.slice_hash() == owner.slice_hash());
+        
+        cell new_code = in_body~load_ref();
+        accept_message();
+        
+        set_code(new_code);
+        _store_state(owner, ver + 1, last_op_time, balance_dict, history_dict);
         return ();
     }
 

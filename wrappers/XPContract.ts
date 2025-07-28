@@ -9,13 +9,12 @@ import {
   toNano,
   contractAddress,
   Dictionary,
-  TupleItem,
-  TupleReader
 } from '@ton/core';
 
 export class XPContract implements Contract {
   static readonly OP_ADD_XP = 0x1234;
   static readonly OP_ADD_XP_WITH_ID = 0x5678;
+  static readonly OP_UPGRADE = 0x8765;
 
   constructor(
     readonly address: Address,
@@ -42,8 +41,8 @@ export class XPContract implements Contract {
 
     const data = beginCell()
       .storeAddress(owner)
-      .storeUint(4, 16)  // Version 4
-      .storeUint(0, 64)  // 64-bit last_op_time
+      .storeUint(4, 16)
+      .storeUint(0, 64)
       .storeDict(balanceDict)
       .storeDict(userHistoryDict)
       .endCell();
@@ -79,6 +78,22 @@ export class XPContract implements Contract {
     await provider.internal(via, {
       value: toNano('0.2'),
       body: body.endCell(),
+    });
+  }
+
+  async sendUpgrade(
+    provider: ContractProvider,
+    via: Sender,
+    options: { newCode: Cell }
+  ) {
+    const body = beginCell()
+      .storeUint(XPContract.OP_UPGRADE, 32)
+      .storeRef(options.newCode)
+      .endCell();
+
+    await provider.internal(via, {
+      value: toNano('0.5'),
+      body: body,
     });
   }
 
