@@ -11,5 +11,36 @@
     "addressNonBounce": "0QDjlIK-7JIGCGxVFKIiF8VRuFkJYFM9SXpxd0TPzyxPx1MW",
     "publicKey": "99865ac96bc01ea0e26f4cd234f6c6091963a347fa64a54e7a682b1f7d1acd05"
   },
-  "contract": "EQAhnDRrTviQ-D9jkDbsAAZQhjoPYLdE20G_Tp0oz1yJM4Hy"
+  "users": [
+    {
+      "id": 1,
+      "address": "EQC6JObw_L2SQPnw4dWPV8QBVnWcgDsR3ntgtyAWFpclp9Mc",
+      "addressNonBounce": "UQC6JObw_L2SQPnw4dWPV8QBVnWcgDsR3ntgtyAWFpclp47Z",
+      "publicKey": "59740187eaa85b415cdfac1ee5f440163ed0545e55211ed6175554ed3af19e35",
+      "mnemonic": "nominee smoke frown caution kangaroo differ lock survey angle enact wear finish hockey metal width age poem fork kid faint bus help same enrich"
+    },
+    {
+      "id": 2,
+      "address": "EQAga9EejNrmP5xYQ4oA1pmdiloQl7rqohEoeMeYlxhwIwNi",
+      "addressNonBounce": "UQAga9EejNrmP5xYQ4oA1pmdiloQl7rqohEoeMeYlxhwI16n",
+      "publicKey": "505a7cdd42a22adf345ece1209f25a1080805772c1068c807d6d53fd238b4e02",
+      "mnemonic": "latin spirit coach dust path normal under detect cherry breeze magnet destroy will ripple desk open useful rough inner uncover reunion question peasant shield"
+    },
+    {
+      "id": 3,
+      "address": "EQBFFYdpkKemM6h0cxVDFVF_Ff0Q1u-pgYtaWLuqrxwzZjlR",
+      "addressNonBounce": "UQBFFYdpkKemM6h0cxVDFVF_Ff0Q1u-pgYtaWLuqrxwzZmSU",
+      "publicKey": "15e692d92ade1ab2d02de54d4d1c107dfbfc94b10e956e2fd044fec9004101d1",
+      "mnemonic": "silk episode industry crew spider hint provide future churn squirrel save sphere tumble mouse coconut ask learn execute oblige exercise push require metal course"
+    },
+    {
+      "id": 4,
+      "address": "EQINVALID_ADDRESS_0000000000000000000000000000",
+      "addressNonBounce": "UQINVALID_ADDR_0000000000000000000000000000",
+      "publicKey": "invalid_public_key_00000000000000000000000000000000",
+      "mnemonic": "invalid invalid invalid invalid invalid invalid invalid invalid invalid invalid invalid invalid"
+    }
+  ],
+  "contract": "EQAhnDRrTviQ-D9jkDbsAAZQhjoPYLdE20G_Tp0oz1yJM4Hy",
+  "nextUserId": 6
 }

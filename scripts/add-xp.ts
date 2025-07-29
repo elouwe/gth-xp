@@ -10,7 +10,7 @@ import { randomBytes } from 'crypto';
 interface Wallets {
   contract: string;
   owner: { mnemonic: string; address: string };
-  user: { address: string; addressNonBounce?: string };
+  users: { address: string; mnemonic: string }[];
 }
 
 function load(): Wallets {
@@ -50,12 +50,11 @@ function generateOpId(): bigint {
 }
 
 export async function run(provider: NetworkProvider) {
-  const { contract, owner, user } = load();
+  const { contract, owner, users } = load();
   if (!contract || !owner.mnemonic) throw new Error('Invalid wallets.json');
 
   const contractAddr = Address.parse(contract);
-  const userAddr = Address.parse(user.address);
-
+  
   const words = owner.mnemonic.split(' ');
   const { publicKey, secretKey } = await mnemonicToPrivateKey(words);
 
@@ -77,31 +76,35 @@ export async function run(provider: NetworkProvider) {
   console.log(`⏳ Last operation: ${lastOpTime}, waiting ${delay}ms...`);
   await new Promise(r => setTimeout(r, delay));
 
-  const opId = generateOpId();
-  console.log(`🔑 Generated OP ID: ${opId.toString()}`);
+  // Добавляем XP всем пользователям
+  for (const user of users) {
+    const userAddr = Address.parse(user.address);
+    const opId = generateOpId();
+    console.log(`🔑 Generated OP ID for ${user.address}: ${opId.toString()}`);
 
-  console.log('🔨 Sending addXP...');
-  await withRetry(async () => {
-    await opened.sendAddXP(sender, { 
-      user: userAddr, 
-      amount: 1n,
-      opId
-    });
-  }, 3, 3000);
+    console.log(`🔨 Sending addXP to ${user.address}...`);
+    await withRetry(async () => {
+      await opened.sendAddXP(sender, { 
+        user: userAddr, 
+        amount: 1n,
+        opId
+      });
+    }, 3, 3000);
 
-  console.log('✅ TX sent, waiting for confirmation...');
-  await new Promise(r => setTimeout(r, 30000));
-
-  let xpBalance = 0n;
-  for (let i = 0; i < 5; i++) {
-    xpBalance = await opened.getXP(userAddr);
-    if (xpBalance > 0n) {
-      console.log(`✅ Balance updated: ${xpBalance}`);
-      break;
+    console.log(`✅ TX sent for ${user.address}, waiting for confirmation...`);
+    await new Promise(r => setTimeout(r, 10000));
+    
+    let xpBalance = 0n;
+    for (let i = 0; i < 5; i++) {
+      xpBalance = await opened.getXP(userAddr);
+      if (xpBalance > 0n) {
+        console.log(`✅ Balance for ${user.address} updated: ${xpBalance}`);
+        break;
+      }
+      console.log(`⏳ Balance for ${user.address} not updated yet, retrying in 5s... (${i+1}/5)`);
+      await new Promise(r => setTimeout(r, 5000));
     }
-    console.log(`⏳ Balance not updated yet, retrying in 5s... (${i+1}/5)`);
-    await new Promise(r => setTimeout(r, 5000));
-  }
 
-  console.log('🎯 Final balance:', xpBalance.toString());
+    console.log(`🎯 Final balance for ${user.address}: ${xpBalance.toString()}`);
+  }
 }

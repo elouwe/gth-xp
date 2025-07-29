@@ -10,6 +10,8 @@ import {
   contractAddress,
   Dictionary,
 } from '@ton/core';
+import { mnemonicNew, mnemonicToPrivateKey } from '@ton/crypto';
+import { WalletContractV4 } from '@ton/ton';
 
 export class XPContract implements Contract {
   static readonly OP_ADD_XP = 0x1234;
@@ -49,6 +51,29 @@ export class XPContract implements Contract {
 
     const addr = contractAddress(0, { code, data });
     return new XPContract(addr, { code, data });
+  }
+
+  static async generateUser(): Promise<{ address: string; mnemonic: string }> {
+    try {
+      const mnemonic = await mnemonicNew();
+      
+      // Преобразование мнемоники в приватный ключ
+      const keyPair = await mnemonicToPrivateKey(mnemonic);
+      
+      // Создание валидного кошелька V4
+      const wallet = WalletContractV4.create({ 
+        workchain: 0, 
+        publicKey: keyPair.publicKey 
+      });
+      
+      return {
+        address: wallet.address.toString(),
+        mnemonic: mnemonic.join(' ')
+      };
+    } catch (error) {
+      console.error('Failed to generate user:', error);
+      throw new Error('User generation failed');
+    }
   }
 
   async sendDeploy(provider: ContractProvider, via: Sender) {
