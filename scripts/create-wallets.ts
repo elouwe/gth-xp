@@ -1,3 +1,4 @@
+// scripts/create-wallets.ts
 import { compile } from '@ton/blueprint';
 import { XPContract } from '../wrappers/XPContract';
 import { Address, WalletContractV4, TonClient, toNano } from '@ton/ton';
@@ -10,64 +11,69 @@ function delay(ms: number) {
 }
 
 export async function run() {
-    // Generate new owner wallet
-    console.log('🔑 Generating new owner wallet...');
+    console.log('\n═════════ OWNER WALLET ═════════');
+    console.log('✦ Generating new owner wallet...');
+    
     const ownerMnemonic = await mnemonicNew();
     const ownerKeyPair = await mnemonicToWalletKey(ownerMnemonic);
-    
     const ownerWallet = WalletContractV4.create({
         workchain: 0,
         publicKey: ownerKeyPair.publicKey
     });
-    
     const ownerAddress = ownerWallet.address;
-    const ownerAddressNonBounce = ownerAddress.toString({ urlSafe: true, bounceable: false });
+    const ownerAddressNonBounce = ownerAddress.toString({ 
+        urlSafe: true, 
+        bounceable: false 
+    });
     
-    console.log('✅ Owner wallet address:', ownerAddress.toString());
-    console.log('📝 Owner mnemonic:', ownerMnemonic.join(' '));
-    console.log('⚠️ IMPORTANT: Save this mnemonic phrase in a secure place!');
+    console.log('✅ Owner wallet generated');
+    console.log('✦ Address:', ownerAddress.toString());
+    console.log('✦ Non-bounce address:', ownerAddressNonBounce);
+    console.log('✦ Mnemonic:', ownerMnemonic.join(' '));
+    console.log('✦ IMPORTANT: Save this mnemonic phrase in a secure place!');
 
-    // Determine network from arguments
     const isTestnet = process.argv.includes('--testnet');
     const network = isTestnet ? 'testnet' : 'mainnet';
     
-    // Create client
+    console.log('\n═════════ NETWORK ═════════');
+    console.log('✦ Selected network:', network.toUpperCase());
+    
     const client = new TonClient({
         endpoint: network === 'mainnet' 
             ? 'https://mainnet.tonhubapi.com' 
             : 'https://testnet.toncenter.com/api/v2/jsonRPC'
     });
     
-    // Check balance
+    console.log('\n═════════ BALANCE ═════════');
     const balance = await client.getBalance(ownerAddress);
     const balanceTON = fromNano(balance);
-    console.log(`💰 Owner balance: ${balanceTON} TON`);
+    console.log('✦ Owner balance:', balanceTON, 'TON');
     
     if (Number(balanceTON) < 0.05) {
-        console.error('\n❌ Insufficient balance. Send at least 0.05 TON to this address:');
-        console.error(ownerAddress.toString());
+        console.error('\n❌ Insufficient balance');
+        console.log('✦ Required: at least 0.05 TON');
+        console.log('✦ Please send funds to:', ownerAddress.toString());
         
         if (isTestnet) {
-            console.error('\nYou can use the testnet faucet: https://t.me/testgiver_ton_bot');
+            console.log('✦ Testnet faucet: https://t.me/testgiver_ton_bot');
         }
         
-        console.error('After funding, rerun this script to deploy the contract.');
+        console.log('✦ After funding, rerun this script');
         return;
     }
 
-    // Deploy contract
-    console.log('\n🛠️ Compiling contract...');
+    console.log('\n═════════ COMPILATION ═════════');
+    console.log('✦ Compiling contract...');
     const code = await compile('xp');
+    console.log('✅ Contract compiled');
     
-    console.log('🚀 Deploying contract...');
+    console.log('\n═════════ DEPLOYMENT ═════════');
+    console.log('✦ Deploying contract...');
+    
     const contract = XPContract.createForDeploy(code, ownerAddress);
     const contractAddress = contract.address;
-    
-    // Open wallet and contract directly through client
     const openedWallet = client.open(ownerWallet);
     const openedContract = client.open(contract);
-    
-    // Create transaction sender
     const sender = openedWallet.sender(ownerKeyPair.secretKey);
     
     try {
@@ -78,29 +84,35 @@ export async function run() {
         throw error;
     }
 
-    // Wait for deployment confirmation
-    console.log('\n⏳ Waiting for deployment confirmation...');
+    console.log('\n═════════ CONFIRMATION ═════════');
+    console.log('✦ Waiting for deployment confirmation...');
+    
     let deployed = false;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 1; i <= 30; i++) {
         await delay(3000);
         deployed = await client.isContractDeployed(contractAddress);
+        
         if (deployed) {
-            console.log('✅ Contract deployed!');
+            console.log('\n✅ Contract deployed!');
+            console.log('✦ Address:', contractAddress.toString());
             break;
         }
-        process.stdout.write('.');
+        
+        process.stdout.write(`⏳ ${i}/30`);
+        if (i < 30) process.stdout.write(', ');
     }
     
     if (!deployed) {
-        console.error('\n❌ Deployment timeout. Check transaction manually:');
         const explorerUrl = isTestnet
             ? `https://testnet.tonscan.org/address/${contractAddress.toString()}`
             : `https://tonscan.org/address/${contractAddress.toString()}`;
-        console.log(explorerUrl);
+        
+        console.error('\n❌ Deployment timeout');
+        console.log('✦ Check transaction manually:', explorerUrl);
         return;
     }
 
-    // Save data
+    console.log('\n═════════ SAVING DATA ═════════');
     const walletsData = {
         owner: {
             mnemonic: ownerMnemonic.join(' '),
@@ -112,9 +124,9 @@ export async function run() {
     };
     
     writeFileSync('wallets.json', JSON.stringify(walletsData, null, 2));
-    console.log('\n💾 Owner and contract data saved to wallets.json');
-    console.log('✨ Deployment complete!');
+    console.log('✅ Data saved to wallets.json');
+    console.log('\n═════════ COMPLETE ═════════');
+    console.log('✦ Deployment successful!');
 }
 
-// Run script
 run().catch(console.error);

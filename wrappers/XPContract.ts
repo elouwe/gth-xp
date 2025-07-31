@@ -1,3 +1,4 @@
+// wrappers/XPContract.ts
 import {
   Address,
   beginCell,
@@ -57,10 +58,8 @@ export class XPContract implements Contract {
     try {
       const mnemonic = await mnemonicNew();
       
-      // Преобразование мнемоники в приватный ключ
       const keyPair = await mnemonicToPrivateKey(mnemonic);
       
-      // Создание валидного кошелька V4
       const wallet = WalletContractV4.create({ 
         workchain: 0, 
         publicKey: keyPair.publicKey 
@@ -84,11 +83,7 @@ export class XPContract implements Contract {
     });
   }
 
-  async sendAddXP(
-    provider: ContractProvider,
-    via: Sender,
-    options: { user: Address; amount: bigint; opId?: bigint }
-  ) {
+  getAddXPMessageBody(options: { user: Address; amount: bigint; opId?: bigint }): Cell {
     const opcode = options.opId ? XPContract.OP_ADD_XP_WITH_ID : XPContract.OP_ADD_XP;
     const body = beginCell()
       .storeUint(opcode, 32)
@@ -100,9 +95,19 @@ export class XPContract implements Contract {
       body.storeUint(options.opId, 256);
     }
 
+    return body.endCell();
+  }
+
+  async sendAddXP(
+    provider: ContractProvider,
+    via: Sender,
+    options: { user: Address; amount: bigint; opId?: bigint }
+  ) {
+    const body = this.getAddXPMessageBody(options);
+
     await provider.internal(via, {
-      value: toNano('0.2'),
-      body: body.endCell(),
+      value: toNano('1'), // Увеличено до 1 TON
+      body: body,
     });
   }
 
