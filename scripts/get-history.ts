@@ -270,7 +270,7 @@ async function main() {
         `✦ Transaction #${index + 1}\n` +
         `  ✦ TX Hash: ${formatOpId(BigInt('0x' + op.txHash!))}\n` +
         `  ✦ OP ID:   ${formatOpId(op.opId)}\n` +
-        `  ✦ Amount:  ${formatXP(op.amount)} ${isRecent ? '🆕' : ''}\n` +
+        `  ✦ Amount:  ${formatXP(op.amount)} ${isRecent}\n` +
         `  ✦ Time:    ${formatDutchDateTime(date)}\n` +
         `  ✦ Date:    ${date.toISOString().split('T')[0]}`
       );
@@ -286,11 +286,15 @@ async function main() {
   console.log('══════════════════════════════════════════════');
 }
 
-// ===================== ERROR HANDLER =====================
-main().catch(e => {
-  const error = e as Error;
-  console.error('\n❌ UNHANDLED ERROR:');
-  console.error(`✦ Message: ${error.message}`);
-  console.error('✦ Action: Check configuration and network connection');
-  process.exit(1);
-});
+// ===================== EXPORT RUN FUNCTION =====================
+export async function run() {
+  try {
+    await main();
+  } catch (e) {
+    const error = e as Error;
+    console.error('\n❌ UNHANDLED ERROR:');
+    console.error(`✦ Message: ${error.message}`);
+    console.error('✦ Action: Check configuration and network connection');
+    process.exit(1);
+  }
+}
