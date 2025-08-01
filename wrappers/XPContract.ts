@@ -106,7 +106,7 @@ export class XPContract implements Contract {
     const body = this.getAddXPMessageBody(options);
 
     await provider.internal(via, {
-      value: toNano('1'), // Увеличено до 1 TON
+      value: toNano('1'), 
       body: body,
     });
   }

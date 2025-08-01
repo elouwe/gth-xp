@@ -42,12 +42,10 @@ export async function run(provider: NetworkProvider, args: string[]) {
     
     if (!contract) throw new Error('wallets.json: contract not set');
 
-    // Парсинг аргументов командной строки
     const requestedIds = args
         .filter(arg => !isNaN(parseInt(arg)))
         .map(id => parseInt(id));
 
-    // Фильтрация пользователей
     const filteredUsers = requestedIds.length > 0
         ? users.filter(user => requestedIds.includes(user.id))
         : users;

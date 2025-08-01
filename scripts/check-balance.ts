@@ -90,7 +90,6 @@ async function main() {
   if (!wallets.owner?.address) throw new Error('wallets.json: "owner.address" field empty');
   if (!wallets.owner?.mnemonic) throw new Error('wallets.json: "owner.mnemonic" field empty');
 
-  // Преобразуем мнемонику в ключ
   const key = await mnemonicToWalletKey(wallets.owner.mnemonic.split(' '));
   const wallet = WalletContractV4.create({
     workchain: 0,

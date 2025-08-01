@@ -2,6 +2,7 @@
   "name": "gotham-xp-contract",
   "version": "0.0.2",
   "scripts": {
+    "init-db": "ts-node scripts/init-db.ts",
     "build": "ts-node scripts/compile.ts",
     "test": "jest --config jest.config.js",
     "pretest": "npm run build",
@@ -18,7 +19,10 @@
     "get-xp:testnet": "USER_ADDR=$(node -pe \"require('./wallets.json').users[0].address\") WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run get-xp --testnet --mnemonic",
     "get-history:testnet": "USER_ADDR=$(node -pe \"require('./wallets.json').users[0].address\") WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run get-history --testnet --mnemonic",
     "compile:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run compile --testnet --mnemonic",
-    "generate-user": "ts-node scripts/generate-user.ts"
+    "generate-user": "ts-node scripts/generate-user.ts",
+    "typeorm": "typeorm-ts-node-commonjs",
+    "migration:generate": "npm run typeorm -- migration:generate -d src/data-source.ts",
+    "migration:run": "npm run typeorm -- migration:run -d src/data-source.ts"
   },
   "devDependencies": {
     "@tact-lang/compiler": "^1.6.13",
@@ -32,11 +36,16 @@
     "@ton/ton": "^15.3.1",
     "@types/inquirer": "^9.0.8",
     "@types/jest": "^29.5.14",
-    "@types/node": "^22.16.5",
+    "@types/node": "^20.8.0",
     "jest": "^29.7.0",
     "prettier": "^3.5.3",
     "ts-jest": "^29.4.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "pg": "^8.16.3",
+    "reflect-metadata": "^0.1.13",
+    "typeorm": "^0.3.20"
   }
 }

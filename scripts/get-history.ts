@@ -4,7 +4,6 @@ import { resolve } from 'path';
 import inquirer from 'inquirer';
 import { TonClient } from '@ton/ton';
 
-// ===================== INTERFACES =====================
 interface User {
   id: number;
   address: string;
@@ -30,12 +29,10 @@ interface Operation {
   txHash?: string;
 }
 
-// ===================== CONSTANTS =====================
 const MAX_XP_PER_OP = 1_000_000n;
 const API_ENDPOINT = 'https://testnet.toncenter.com/api/v2/jsonRPC';
 const API_KEY = '8cf308a3ba1d15eb11875c9c2e48d87cc381d97cb4a30a7288cb19e79f51ce5d';
 
-// ===================== CONFIG LOADERS =====================
 function loadWallets(): Wallets {
   console.log('\n═════════ LOADING CONFIGURATION ═════════');
   console.log('✦ Reading wallet configuration...');
@@ -61,7 +58,6 @@ function loadWallets(): Wallets {
   }
 }
 
-// ===================== FORMATTING UTILS =====================
 function formatAddress(address: string): string {
   return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
 }
@@ -93,7 +89,6 @@ function formatDutchDateTime(date: Date): string {
   return `${day} ${month} ${year} om ${hours}:${minutes}`;
 }
 
-// ===================== CONTRACT OPERATIONS =====================
 const OpInlineValueCodec = {
   serialize: (src: Operation, b: any) => {
     b.storeUint(src.amount, 64)
@@ -234,7 +229,6 @@ async function main() {
 
   const allOperations: Operation[] = [];
   
-  // Исправление: использование итератора вместо forEach
   for (const [opId, op] of dict) {
     allOperations.push({ 
       ...op, 

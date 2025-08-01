@@ -7,6 +7,8 @@ import { XPContract } from '../wrappers/XPContract';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import { WalletContractV4 } from '@ton/ton';
 import { randomBytes } from 'crypto';
+import { AppDataSource } from '../src/data-source';
+import { User } from '../src/entities/User';
 
 interface Wallets {
   contract: string;
@@ -54,6 +56,29 @@ function generateOpId(): bigint {
 
 export async function run(provider: NetworkProvider) {
   const { contract, owner, users } = load();
+  
+  console.log('\n═════════ DATABASE CONNECTION ═════════');
+  if (!AppDataSource.isInitialized) {
+    try {
+      await AppDataSource.initialize();
+      console.log('✅ Database connected');
+      const tableExists = await AppDataSource.query(
+        `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')`
+      );
+      
+      if (!tableExists[0]?.exists) {
+        console.log('ℹ️ Creating users table...');
+        await AppDataSource.synchronize();
+        console.log('✅ Users table created');
+      }
+    } catch (error) {
+      console.error('❌ Database connection failed:', error);
+      throw error;
+    }
+  } else {
+    console.log('✓ Using existing database connection');
+  }
+
   if (!contract || !owner.mnemonic) {
     throw new Error('Invalid wallets.json');
   }
@@ -208,11 +233,32 @@ export async function run(provider: NetworkProvider) {
       console.log('  - OP ID:', opId.toString());
     } else {
       console.log('✦ Final balance:', xpBalance.toString());
+      console.log('✦ Updating database...');
+      try {
+        const userRepo = AppDataSource.getRepository(User);
+        let dbUser = await userRepo.findOne({ where: { address: userAddr.toString() } });
+        
+        if (!dbUser) {
+          dbUser = new User();
+          dbUser.address = userAddr.toString();
+          dbUser.xp = Number(xpBalance);
+          console.log('✓ New user created in database');
+        } else {
+          dbUser.xp = Number(xpBalance);
+          console.log('✓ Existing user updated in database');
+        }
+        
+        await userRepo.save(dbUser);
+        console.log('✅ Database updated');
+      } catch (dbError) {
+        console.error('❌ Database update failed:', dbError);
+      }
     }
     
     try {
       console.log('\n✦ Checking user history...');
       const history = await opened.getUserHistory(userAddr);
+      
       if (history) {
         console.log('✅ History exists');
         console.log('✦ Cell hash:', history.hash().toString('hex'));
@@ -222,5 +268,11 @@ export async function run(provider: NetworkProvider) {
     } catch (e) {
       console.warn('⚠️ History check failed:', e);
     }
+  }
+
+  console.log('\n═════════ DATABASE CLEANUP ═════════');
+  if (AppDataSource.isInitialized) {
+    await AppDataSource.destroy();
+    console.log('✅ Database connection closed');
   }
 }
