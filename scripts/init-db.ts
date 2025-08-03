@@ -1,5 +1,6 @@
 import { DataSource } from "typeorm";
 import { User } from '../src/entities/User';
+import { Transaction } from '../src/entities/Transaction'; 
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -117,7 +118,7 @@ async function initializeDB() {
     username: "ton_user",
     password: "SEGMYH8yOd1n",
     database: "ton_xp_db",
-    entities: [User],
+    entities: [User, Transaction], // Добавлена сущность
     synchronize: true,
     logging: false,
   });
@@ -131,7 +132,7 @@ async function initializeDB() {
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' 
-          AND table_name = 'user'
+          AND table_name = 'users' // FIXED: 'user' → 'users'
       )
     `);
     

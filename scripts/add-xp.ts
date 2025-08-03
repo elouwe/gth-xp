@@ -1,5 +1,6 @@
 // scripts/add-xp.ts
-import { Address, toNano, fromNano, Cell } from '@ton/core';
+// ══════════════════════ IMPORTS ════════════════════
+import { Address, toNano, fromNano, Sender } from '@ton/core';
 import { NetworkProvider } from '@ton/blueprint';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -9,6 +10,13 @@ import { WalletContractV4 } from '@ton/ton';
 import { randomBytes } from 'crypto';
 import { AppDataSource } from '../src/data-source';
 import { User } from '../src/entities/User';
+import { Transaction as DBTransaction } from '../src/entities/Transaction';
+import { TonClient } from '@ton/ton';
+import * as dotenv from 'dotenv';
+import * as readline from 'readline';
+
+// ══════════════════════ ENVIRONMENT SETUP ════════════════════
+dotenv.config();
 
 interface Wallets {
   contract: string;
@@ -31,9 +39,9 @@ async function withRetry<T>(
     try {
       return await fn();
     } catch (error) {
-      console.warn(`Attempt ${i + 1} failed: ${error}`);
+      console.warn(`✦ Attempt ${i + 1} failed: ${error}`);
       if (i === retries - 1) throw error;
-      console.log(`Retrying in ${delayMs}ms`);
+      console.log(`✦ Retrying in ${delayMs}ms`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
@@ -50,14 +58,123 @@ function calculateDelay(lastOpTime: number): number {
 }
 
 function generateOpId(): bigint {
-  const buffer = randomBytes(32);
+  const buffer = randomBytes(8);
   return BigInt('0x' + buffer.toString('hex'));
 }
 
+async function getTransactionHash(client: TonClient, address: Address, minLt: bigint): Promise<string | null> {
+  for (let i = 0; i < 10; i++) {
+    try {
+      const transactions = await client.getTransactions(address, {
+        limit: 5,
+        inclusive: true
+      });
+
+      for (const tx of transactions) {
+        if (tx.lt > minLt) {
+          return tx.hash().toString('hex');
+        }
+      }
+      
+      console.log('⏳ Waiting for transaction confirmation...');
+      await new Promise(r => setTimeout(r, 3000));
+    } catch (error: any) {
+      if (error?.response?.status === 429) {
+        const waitTime = 5000 * (i + 1);
+        console.warn(`⚠️ Rate limited. Waiting ${waitTime}ms...`);
+        await new Promise(r => setTimeout(r, waitTime));
+      } else {
+        throw error;
+      }
+    }
+  }
+  return null;
+}
+
+function createHighGasSender(baseSender: Sender, extraGas: bigint): Sender {
+  return {
+    address: baseSender.address,
+    send: async (args) => {
+      return baseSender.send({
+        ...args,
+        value: args.value + extraGas
+      });
+    }
+  };
+}
+
+function prompt(question: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise(resolve => {
+    rl.question(question, answer => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+// ══════════════════════ MAIN EXECUTION ═══════════════════════
 export async function run(provider: NetworkProvider) {
-  const { contract, owner, users } = load();
+  console.log('\n═════════════════════ INITIALIZATION ═════════════════════');
+  console.log('✦ Starting XP distribution process');
+  console.log('✦ Current date:', new Date().toISOString());
   
-  console.log('\n═════════ DATABASE CONNECTION ═════════');
+  // ──────────────────── ENVIRONMENT CONFIG ────────────────────
+  const TONCENTER_API_KEY = process.env.TONCENTER_API_KEY;
+  if (!TONCENTER_API_KEY) {
+    console.error('❌ TONCENTER_API_KEY not set in environment');
+    throw new Error('TONCENTER_API_KEY environment variable is not set');
+  }
+  console.log('✅ Environment configuration verified');
+
+  // ──────────────────── LOAD WALLET DATA ──────────────────────
+  const { contract, owner, users } = load();
+  console.log('✦ Loaded wallet data:');
+  console.log(`  - Contract: ${contract}`);
+  console.log(`  - Owner: ${owner.address}`);
+  console.log(`  - Users: ${users.length} records`);
+
+  // ─────────────────── USER SELECTION UI ──────────────────────
+  console.log('\n═════════════════════ USER SELECTION ═════════════════════');
+  let userFilter: number[] = [];
+  const input = await prompt('✦ Enter user IDs (comma separated) or press Enter for all: ');
+  
+  if (input) {
+    const ids = input.split(',');
+    for (const id of ids) {
+      const parsedId = parseInt(id.trim(), 10);
+      if (!isNaN(parsedId)) {
+        userFilter.push(parsedId);
+      }
+    }
+    console.log(`✦ Selected IDs: ${userFilter.join(', ')}`);
+  } else {
+    console.log('✦ No filter applied - selecting all users');
+  }
+
+  const targetUsers = users.filter(user => {
+    try {
+      Address.parse(user.address);
+      return userFilter.length === 0 || userFilter.includes(user.id);
+    } catch {
+      console.warn(`⚠️ Skipping user #${user.id} - invalid address: ${user.address}`);
+      return false;
+    }
+  });
+
+  if (userFilter.length > 0 && targetUsers.length === 0) {
+    console.log(`\n⚠️ No users found with IDs: ${userFilter.join(', ')}`);
+    console.log('ℹ️ Available user IDs:', users.map(u => u.id).join(', '));
+    return;
+  }
+  console.log(`✦ Selected users: ${targetUsers.length}`);
+
+  // ──────────────── DATABASE CONNECTION ──────────────────────
+  console.log('\n════════════════════ DATABASE CONNECTION ═══════════════════');
   if (!AppDataSource.isInitialized) {
     try {
       await AppDataSource.initialize();
@@ -67,12 +184,13 @@ export async function run(provider: NetworkProvider) {
       );
       
       if (!tableExists[0]?.exists) {
-        console.log('ℹ️ Creating users table...');
+        console.log('✦ Creating users table...');
         await AppDataSource.synchronize();
         console.log('✅ Users table created');
       }
     } catch (error) {
-      console.error('❌ Database connection failed:', error);
+      console.error('❌ Database connection failed:');
+      console.error('✦ Error details:', error);
       throw error;
     }
   } else {
@@ -80,94 +198,100 @@ export async function run(provider: NetworkProvider) {
   }
 
   if (!contract || !owner.mnemonic) {
+    console.error('❌ Invalid wallets.json structure');
     throw new Error('Invalid wallets.json');
   }
 
+  // ─────────────────── WALLET SETUP ──────────────────────────
+  console.log('\n═════════════════════ WALLET SETUP ═══════════════════════');
   const contractAddr = Address.parse(contract);
   const words = owner.mnemonic.split(' ');
   const { publicKey, secretKey } = await mnemonicToPrivateKey(words);
   const wallet = WalletContractV4.create({ workchain: 0, publicKey });
   const wc = provider.open(wallet);
-  const sender = wc.sender(secretKey);
+  const baseSender = wc.sender(secretKey);
   const walletBalance = await wc.getBalance();
   
-  console.log('\n═════════ WALLET ═════════');
-  console.log('✦ Balance:', fromNano(walletBalance), 'TON');
+  console.log('✦ Wallet details:');
+  console.log(`  - Address: ${wallet.address.toString()}`);
+  console.log(`  - Balance: ${fromNano(walletBalance)} TON`);
   
   if (walletBalance < toNano('1.5')) {
-    throw new Error(
-      `Insufficient balance: ${fromNano(walletBalance)} TON, need at least 1.5 TON`
-    );
+    const errMsg = `❌ Insufficient balance: ${fromNano(walletBalance)} TON, need at least 1.5 TON`;
+    console.error(errMsg);
+    throw new Error(errMsg);
   }
 
+  // ────────────── CONTRACT CONFIGURATION ────────────────────
   const xp = XPContract.createFromAddress(contractAddr);
   const opened = provider.open(xp);
   const lastOpTime = Number(await opened.getLastOpTime());
   const delay = calculateDelay(lastOpTime);
   
-  console.log('\n═════════ DELAY ═════════');
-  console.log('✦ Last operation:', lastOpTime);
-  console.log('✦ Calculated delay:', delay * 2, 'ms');
+  console.log('\n════════════════════ TIMING CONFIG ═══════════════════════');
+  console.log('✦ Contract status:');
+  console.log(`  - Last operation: ${new Date(lastOpTime * 1000).toISOString()}`);
+  console.log(`  - Calculated delay: ${delay * 2} ms`);
   await new Promise(r => setTimeout(r, delay * 2));
+  console.log('✅ Delay completed');
 
-  const targetUsers = users.filter(user => {
-    try {
-      Address.parse(user.address);
-      return true;
-    } catch {
-      console.warn('⚠️ Skipping user #' + user.id + ' - invalid address:', user.address);
-      return false;
-    }
+  // ──────────────── NETWORK CLIENT ──────────────────────────
+  const client = new TonClient({
+    endpoint: `https://testnet.toncenter.com/api/v2/jsonRPC`,
+    apiKey: TONCENTER_API_KEY
   });
-
-  console.log('\n═════════ USERS ═════════');
-  console.log('✦ Valid users:', targetUsers.length);
+  const walletAddress = wallet.address;
   
-  try {
-    const contractState = await provider.provider(contractAddr).getState();
-    console.log('✦ Contract balance:', fromNano(contractState.balance), 'TON');
-  } catch (e) {
-    console.warn('⚠️ Failed to get contract balance:', e);
-  }
-  
-  for (const user of targetUsers) {
-    console.log('\n═════════ USER #' + user.id + ' ═════════');
-    console.log('✦ Address:', user.address);
+  // ──────────────── USER PROCESSING LOOP ────────────────────
+  console.log('\n═══════════════════ USER PROCESSING ═════════════════════');
+  for (const [index, user] of targetUsers.entries()) {
+    console.log(`\n─────── PROCESSING USER ${index + 1}/${targetUsers.length} ───────`);
+    console.log(`✦ User #${user.id} | Address: ${user.address}`);
+    
+    const lastTx = await withRetry(async () => {
+      return await client.getTransactions(walletAddress, { limit: 1 });
+    }, 3, 3000);
+    const minLt = lastTx.length > 0 ? lastTx[0].lt : 0n;
     
     const userAddr = Address.parse(user.address);
-    const opId = generateOpId();
+    let opIdUsed = generateOpId();
+    let txHash: string | null = null;
     
-    console.log('\n✦ OP ID:', opId.toString());
-    console.log('✦ Address details:');
-    console.log('  - Parsed:', userAddr.toString());
-    console.log('  - Workchain:', userAddr.workChain);
-    console.log('  - Hash:', userAddr.hash.toString('hex'));
+    console.log('✦ Operation details:');
+    console.log(`  - OP ID: ${opIdUsed.toString()}`);
+    console.log(`  - Parsed address: ${userAddr.toString()}`);
+    console.log(`  - Workchain: ${userAddr.workChain}`);
+    console.log(`  - Hash: ${userAddr.hash.toString('hex')}`);
 
+    // ─────────────── TRANSACTION EXECUTION ───────────────────
     try {
       console.log('\n✦ Sending addXP transaction...');
       
-      const messageBody = xp.getAddXPMessageBody({
-        user: userAddr,
-        amount: 1n,
-        opId
-      });
-      console.log('✦ Message body:', messageBody.toBoc().toString('hex'));
-      
       await withRetry(async () => {
-        await opened.sendAddXP(sender, {
+        await opened.sendAddXP(baseSender, {
           user: userAddr,
           amount: 1n,
-          opId
+          opId: opIdUsed
         });
       }, 3, 3000);
       
       console.log('✅ Transaction sent');
+      
+      txHash = await getTransactionHash(client, walletAddress, minLt);
+      if (txHash) {
+        console.log(`✅ Transaction confirmed: ${txHash}`);
+      } else {
+        console.warn('⚠️ Transaction confirmation not found');
+      }
+      
     } catch (error) {
-      console.error('❌ TX failed:', error);
+      console.error('❌ Transaction failed:');
+      console.error('✦ Error details:', error);
       continue;
     }
 
-    console.log('\n✦ Waiting 10s for state update...');
+    // ─────────────── BALANCE VERIFICATION ────────────────────
+    console.log('\n✦ Verifying balance update...');
     await new Promise(r => setTimeout(r, 10000));
     
     let xpBalance = 0n;
@@ -175,16 +299,15 @@ export async function run(provider: NetworkProvider) {
     
     for (let i = 0; i < 15; i++) {
       try {
-        console.log('✦ Checking balance (' + (i + 1) + '/15)...');
+        console.log(`  - Check ${i + 1}/15...`);
         xpBalance = await opened.getXP(userAddr);
         
         if (xpBalance > 0n) {
-          console.log('✅ Balance updated:', xpBalance);
+          console.log(`✅ Balance updated: ${xpBalance} XP`);
           updated = true;
           break;
         }
         
-        console.log('✦ Balance still 0, retrying in 5s...');
         await new Promise(r => setTimeout(r, 5000));
       } catch (e) {
         console.warn('⚠️ Balance check error:', e);
@@ -192,27 +315,36 @@ export async function run(provider: NetworkProvider) {
       }
     }
 
+    // ─────────────── RETRY MECHANISM ────────────────────────
     if (!updated) {
-      console.error('❌ Balance update failed');
-      console.log('✦ Retrying with higher gas...');
+      console.error('❌ Initial balance update failed');
+      console.log('✦ Initiating retry with higher gas...');
       
       try {
         const retryOpId = generateOpId();
-        await opened.sendAddXP(sender, {
+        opIdUsed = retryOpId;
+        const highGasSender = createHighGasSender(baseSender, toNano('0.1'));
+        
+        await opened.sendAddXP(highGasSender, {
           user: userAddr,
           amount: 1n,
           opId: retryOpId
         });
         
-        console.log('✅ Retry TX sent');
-        console.log('✦ Waiting 15s...');
+        console.log('✅ Retry transaction sent (higher gas)');
+        
+        txHash = await getTransactionHash(client, walletAddress, minLt);
+        if (txHash) {
+          console.log(`✅ Retry transaction confirmed: ${txHash}`);
+        }
+        
         await new Promise(r => setTimeout(r, 15000));
         
         for (let i = 0; i < 10; i++) {
           try {
             xpBalance = await opened.getXP(userAddr);
             if (xpBalance > 0n) {
-              console.log('✅ Balance updated after retry:', xpBalance);
+              console.log(`✅ Balance updated after retry: ${xpBalance} XP`);
               updated = true;
               break;
             }
@@ -222,57 +354,86 @@ export async function run(provider: NetworkProvider) {
           }
         }
       } catch (error) {
-        console.error('❌ Retry TX failed:', error);
+        console.error('❌ Retry transaction failed:');
+        console.error('✦ Error details:', error);
       }
     }
 
-    if (!updated) {
-      console.error('❌ Balance update failed after retry');
-      console.log('✦ Additional checks:');
-      console.log('  - User address:', userAddr.toString());
-      console.log('  - OP ID:', opId.toString());
-    } else {
+    // ─────────────── DATABASE UPDATE ────────────────────────
+    if (updated) {
       console.log('✦ Final balance:', xpBalance.toString());
-      console.log('✦ Updating database...');
+      console.log('✦ Updating database records...');
       try {
         const userRepo = AppDataSource.getRepository(User);
-        let dbUser = await userRepo.findOne({ where: { address: userAddr.toString() } });
+        const transactionRepo = AppDataSource.getRepository(DBTransaction); 
+            
+        let dbUser = await userRepo.findOne({ 
+            where: { address: userAddr.toString() },
+            relations: ['transactions'] 
+        });
         
         if (!dbUser) {
           dbUser = new User();
           dbUser.address = userAddr.toString();
           dbUser.xp = Number(xpBalance);
-          console.log('✓ New user created in database');
+          console.log('✓ Created new user record');
         } else {
           dbUser.xp = Number(xpBalance);
-          console.log('✓ Existing user updated in database');
+          console.log('✓ Updated existing user record');
         }
         
         await userRepo.save(dbUser);
-        console.log('✅ Database updated');
+        const transaction = new DBTransaction();
+        transaction.opId = opIdUsed.toString();
+        transaction.txHash = txHash; 
+        transaction.amount = 1;
+        transaction.timestamp = new Date();
+        transaction.senderAddress = wallet.address.toString(); 
+        transaction.receiverAddress = userAddr.toString(); 
+        transaction.status = updated ? "success" : "failed";
+        transaction.description = `XP added for user #${user.id}`;
+        transaction.user = dbUser;
+
+        await transactionRepo.save(transaction);
+        console.log('✅ Transaction details saved');
+
       } catch (dbError) {
-        console.error('❌ Database update failed:', dbError);
+        console.error('❌ Database update failed:');
+        console.error('✦ Error details:', dbError);
       }
+    } else {
+      console.error('❌ Balance update failed after retry');
+      console.log('✦ Additional diagnostics:');
+      console.log(`  - User address: ${userAddr.toString()}`);
+      console.log(`  - OP ID: ${opIdUsed.toString()}`);
     }
     
+    // ─────────────── HISTORY VERIFICATION ────────────────────
     try {
-      console.log('\n✦ Checking user history...');
+      console.log('\n✦ Verifying user history...');
       const history = await opened.getUserHistory(userAddr);
       
       if (history) {
-        console.log('✅ History exists');
-        console.log('✦ Cell hash:', history.hash().toString('hex'));
+        console.log('✅ History record exists');
+        console.log(`  - Cell hash: ${history.hash().toString('hex')}`);
       } else {
-        console.warn('⚠️ No history found');
+        console.warn('⚠️ No history record found');
       }
     } catch (e) {
-      console.warn('⚠️ History check failed:', e);
+      console.warn('⚠️ History verification failed:', e);
     }
   }
 
-  console.log('\n═════════ DATABASE CLEANUP ═════════');
+  // ──────────────── CLEANUP PHASE ───────────────────────────
+  console.log('\n═════════════════════ CLEANUP ════════════════════════');
   if (AppDataSource.isInitialized) {
     await AppDataSource.destroy();
     console.log('✅ Database connection closed');
   }
+  
+  console.log('\n═════════════════════ COMPLETION ═════════════════════');
+  console.log('✦ XP distribution process finished');
+  console.log(`✦ Processed ${targetUsers.length} users`);
+  console.log('✦ Timestamp:', new Date().toISOString());
 }
+// ══════════════════════ END ════════════════════

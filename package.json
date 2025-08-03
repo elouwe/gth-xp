@@ -21,8 +21,11 @@
     "compile:testnet": "WALLET_MNEMONIC=$(node -pe \"require('./wallets.json').owner.mnemonic\") WALLET_VERSION=v4r2 npx blueprint run compile --testnet --mnemonic",
     "generate-user": "ts-node scripts/generate-user.ts",
     "typeorm": "typeorm-ts-node-commonjs",
-    "migration:generate": "npm run typeorm -- migration:generate -d src/data-source.ts",
-    "migration:run": "npm run typeorm -- migration:run -d src/data-source.ts"
+    "migration:generate": "npm run typeorm -- migration:generate -d src/data-source.ts src/migrations/InitialMigration",
+    "migration:run": "npm run typeorm -- migration:run -d src/data-source.ts",
+    "db:drop": "typeorm schema:drop -d src/data-source.ts",
+    "db:migrate": "typeorm migration:run -d src/data-source.ts",
+    "db:reset": "npm run db:drop && npm run db:migrate"
   },
   "devDependencies": {
     "@tact-lang/compiler": "^1.6.13",
@@ -41,11 +44,12 @@
     "prettier": "^3.5.3",
     "ts-jest": "^29.4.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.2.2"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "pg": "^8.16.3",
     "reflect-metadata": "^0.1.13",
-    "typeorm": "^0.3.20"
+    "typeorm": "^0.3.20",
+    "typeorm-naming-strategies": "^4.1.0"
   }
 }
