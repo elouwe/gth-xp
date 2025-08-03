@@ -1,3 +1,4 @@
+// scripts/compile.ts
 // ══════════════════════ IMPORTS ══════════════════════
 import { compileFunc } from "@ton-community/func-js";
 import { Cell } from "@ton/core";

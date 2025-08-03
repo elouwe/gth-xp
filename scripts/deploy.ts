@@ -1,3 +1,4 @@
+// scripts/deploy.ts
 // ══════════════════════ IMPORTS ══════════════════════
 import { compile } from '@ton/blueprint';
 import { XPContract } from '../wrappers/XPContract';
