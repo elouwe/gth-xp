@@ -1,13 +1,13 @@
 // scripts/deploy.ts
 // ══════════════════════ IMPORTS ══════════════════════
-import { compile } from '@ton/blueprint';
 import { XPContract } from '../wrappers/XPContract';
 import { NetworkProvider } from '@ton/blueprint';
 import { Address, WalletContractV4, TonClient, toNano } from '@ton/ton';
 import { mnemonicToWalletKey } from '@ton/crypto';
 import wallets from '../wallets.json';
-import { writeFileSync } from 'fs';
-import { fromNano } from '@ton/core';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { fromNano, Cell } from '@ton/core';
+import path from 'path';
 
 // ══════════════════════ UTILITIES ═══════════════════════
 function delay(ms: number) {
@@ -73,23 +73,37 @@ export async function run(provider: NetworkProvider) {
     }
     console.log('✅ Sufficient balance verified');
 
-    // ─────────────────── CONTRACT COMPILATION ──────────────────
-    console.log('\n═════════════════════ COMPILATION ══════════════════════');
-    console.log('✦ Compiling contract source...');
+    // ─────────────────── CONTRACT LOADING ──────────────────────
+    console.log('\n═════════════════════ CONTRACT LOADING ═════════════════');
+    console.log('✦ Loading pre-compiled Tolk contract...');
     
     try {
-        const code = await compile('xp');
-        console.log('✅ Contract compiled successfully');
+        const projectRoot = process.cwd();
+        const bocPath = path.join(projectRoot, 'build', 'XP.code.boc');
+        
+        if (!existsSync(bocPath)) {
+            console.error('❌ Compiled contract not found');
+            console.log(`✦ Path: ${bocPath}`);
+            console.log('✦ Run "npm run compile" first to compile the contract');
+            throw new Error('Compiled contract not found');
+        }
+        
+        const code = Cell.fromBoc(readFileSync(bocPath))[0];
+        console.log('✅ Contract loaded successfully');
         console.log(`  - Cell hash: ${code.hash().toString('hex')}`);
+        console.log(`  - Path: ${bocPath}`);
     } catch (error) {
-        console.error('❌ Compilation failed:');
+        console.error('❌ Failed to load compiled contract:');
         console.error('✦ Error details:', error);
         throw error;
     }
 
     // ─────────────────── DEPLOYMENT PREP ───────────────────────
     console.log('\n═════════════════════ DEPLOYMENT SETUP ═════════════════');
-    const code = await compile('xp');
+    const projectRoot = process.cwd();
+    const bocPath = path.join(projectRoot, 'build', 'XP.code.boc');
+    const code = Cell.fromBoc(readFileSync(bocPath))[0];
+    
     const contract = XPContract.createForDeploy(code, walletAddress);
     const opened = provider.open(contract);
     
