@@ -1,6 +1,6 @@
 {
-  "targets": ["contracts/xp.fc"],
+  "targets": ["contracts/xp.tolk"],
   "sources": {
-    "stdlib.fc": "./contracts/stdlib.fc"
+    "stdlib.fc": "./contracts/stdlib.tolk"
   }
 }

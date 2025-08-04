@@ -1,88 +1,152 @@
-// scripts/compile.ts
-// ══════════════════════ IMPORTS ══════════════════════
-import { compileFunc } from "@ton-community/func-js";
-import { Cell } from "@ton/core";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
-import path from "path";
+// scripts/compile.ts 
+// ===================== IMPORTS =====================
 import { NetworkProvider } from '@ton/blueprint';
+import { runTolkCompiler, getTolkCompilerVersion } from '@ton/tolk-js';
+import { Cell } from '@ton/core';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import path from 'path';
 
-// ══════════════════════ MAIN EXECUTION ══════════════════════
-export async function run(provider: NetworkProvider) {
-  console.log('\n═════════════════════ COMPILATION START ═════════════════════');
-  console.log('✦ Starting contract compilation');
-  console.log('✦ Timestamp:', new Date().toISOString());
+// ===================== FS UTILITIES =====================
+function ensureDir(p: string) {
+  if (!existsSync(p)) mkdirSync(p, { recursive: true });
+}
+
+// ===================== ENTRY FINDER =====================
+function findEntry(projectRoot: string): { entryRel: string; entryFull: string } {
+  console.log('✦ Starting entry point search...');
   
-  // ─────────────────── PATH CONFIGURATION ───────────────────
-  const root = process.cwd();
-  const contracts = path.join(root, "contracts");
-  const buildDir = path.join(root, "build");
-  
-  console.log('\n═════════════════════ PATH CONFIG ═════════════════════');
-  console.log('✦ Root directory:', root);
-  console.log('✦ Contracts source:', contracts);
-  console.log('✦ Build directory:', buildDir);
-  
-  try {
-    mkdirSync(buildDir, { recursive: true });
-    console.log('✅ Build directory verified');
-  } catch (error: any) {  // Added type annotation
-    console.error('❌ Build directory creation failed:');
-    console.error('✦ Error:', error.message);
-    throw error;
+  // ─────── Explicit paths ───────
+  const fromEnv = process.env.TOLK_ENTRY;
+  const cliArg = process.argv.find((a) => a.startsWith('--entry='));
+  const fromCli = cliArg ? cliArg.split('=')[1] : undefined;
+  const candidateEnv = fromCli || fromEnv;
+
+  if (candidateEnv) {
+    console.log('✦ Using explicit entry path');
+    const full = path.resolve(projectRoot, candidateEnv);
+    
+    if (!existsSync(full)) {
+      throw new Error(
+        `❌ Specified entry not found: ${candidateEnv} (searched at ${full})`
+      );
+    }
+    
+    const rel = path.relative(projectRoot, full) || path.basename(full);
+    return { entryRel: rel, entryFull: full };
   }
 
-  // ────────────────── COMPILATION PROCESS ───────────────────
-  console.log('\n═════════════════════ COMPILATION ═════════════════════');
-  console.log('✦ Reading source files...');
+  // ─────── Auto-discovery ───────
+  console.log('✦ Scanning common locations...');
+  const candidates = [
+    'xp.tolk',
+    'contracts/xp.tolk',
+    'contract/xp.tolk',
+    'src/xp.tolk',
+    'src/contracts/xp.tolk',
+    'ton/xp.tolk',
+    'packages/contract/xp.tolk',
+  ];
+  
+  for (const rel of candidates) {
+    const full = path.join(projectRoot, rel);
+    if (existsSync(full)) {
+      console.log(`✅ Found at: ${rel}`);
+      return { entryRel: rel, entryFull: full };
+    }
+  }
+  
+  throw new Error(
+    `❌ xp.tolk not found. Specify via TOLK_ENTRY or --entry=path\n` +
+    `✦ Checked locations: ${candidates.join(', ')}`
+  );
+}
+
+// ===================== MAIN COMPILATION =====================
+export async function run(_provider: NetworkProvider) {
+  console.log('\n══════════ TOLK COMPILER ══════════');
+  console.log('✦ Initializing compilation process');
   
   try {
-    const result = await compileFunc({
-      targets: ["xp.fc"],
-      sources: {
-        "xp.fc": readFileSync(path.join(contracts, "xp.fc"), "utf8"),
-        "stdlib.fc": readFileSync(path.join(contracts, "stdlib.fc"), "utf8"),
+    const projectRoot = process.cwd();
+    const outDir = path.join(projectRoot, 'build');
+    ensureDir(outDir);
+
+    // ─────── Entry discovery ───────
+    console.log('\n─────── ENTRY POINT ───────');
+    const { entryRel, entryFull } = findEntry(projectRoot);
+    console.log(`✦ Selected: ${entryRel}`);
+
+    // ─────── Compilation ───────
+    console.log('\n─────── COMPILATION ───────');
+    console.log('✦ Starting Tolk compiler...');
+    
+    const res = await runTolkCompiler({
+      entrypointFileName: entryRel,
+      fsReadCallback: (p: string) => {
+        const try1 = path.resolve(projectRoot, p);
+        if (existsSync(try1)) return readFileSync(try1, 'utf-8');
+
+        const try2 = path.resolve(path.dirname(entryFull), p);
+        if (existsSync(try2)) return readFileSync(try2, 'utf-8');
+
+        if (path.isAbsolute(p) && existsSync(p)) return readFileSync(p, 'utf-8');
+
+        throw new Error(`❌ File read error: ${p}`);
       },
+      withSrcLineComments: true,
     });
 
-    // ──────────────── ERROR HANDLING ────────────────────────
-    if (result.status === "error") {
-      console.error('\n═════════════════════ ERRORS ═════════════════════');
-      console.error('❌ FunC compilation failed');
-      console.error('✦ Message:', result.message);
-      
-      // Type-safe log access
-      if ('log' in result) {
-        console.error('\n─────── COMPILATION LOG ───────');
-        console.error(result.log);
-      }
-      
-      throw new Error('Compilation failed');
+    if (res.status === 'error') {
+      throw new Error(`❌ Compiler error: ${res.message}`);
     }
 
-    // ────────────────── OUTPUT HANDLING ─────────────────────
-    const cell = Cell.fromBoc(Buffer.from(result.codeBoc, "base64"))[0];
-    const outputPath = path.join(buildDir, "xp.compiled.cell");
+    // ─────── Output handling ───────
+    console.log('\n─────── OUTPUT GENERATION ───────');
+    const codeCell = Cell.fromBoc(Buffer.from(res.codeBoc64, 'base64'))[0];
     
-    writeFileSync(outputPath, cell.toBoc());
+    const bocPath = path.join(outDir, 'XP.code.boc');
+    const metaPath = path.join(outDir, 'XP.compilation.json');
     
-    console.log('\n═════════════════════ RESULT ═════════════════════');
-    console.log('✅ Contract compiled successfully');
-    console.log('✦ Output file:', outputPath);
-    console.log('✦ Cell size:', cell.bits.length, 'bits');
-    console.log('✦ References:', cell.refs.length);
-    console.log('✦ Hash:', cell.hash().toString('hex'));
-    
-  } catch (error: any) {  // Added type annotation
-    console.error('\n═════════════════════ FATAL ERROR ═════════════════════');
-    console.error('❌ Unhandled compilation error');
-    console.error('✦ Message:', error.message);
-    throw error;
-  }
+    writeFileSync(bocPath, codeCell.toBoc());
+    console.log(`✦ Compiled cell written: ${path.relative(projectRoot, bocPath)}`);
 
-  // ─────────────────── COMPLETION ──────────────────────────
-  console.log('\n═════════════════════ COMPLETION ═════════════════════');
-  console.log('✦ Contract compilation finished');
-  console.log('✦ Timestamp:', new Date().toISOString());
-  console.log('══════════════════════════════════════════════════════════');
+    const version = await getTolkCompilerVersion();
+    writeFileSync(
+      metaPath,
+      JSON.stringify(
+        {
+          tool: '@ton/tolk-js',
+          version,
+          entry: entryRel,
+          codeHashHex: res.codeHashHex,
+        },
+        null,
+        2
+      )
+    );
+    console.log(`✦ Metadata written: ${path.relative(projectRoot, metaPath)}`);
+
+    // ─────── Success report ───────
+    console.log('\n══════════ COMPILATION REPORT ══════════');
+    console.log(`✅ Compilation successful!`);
+    console.log(`✦ Tolk version: ${version}`);
+    console.log(`✦ Entry point: ${entryRel}`);
+    console.log(`✦ Code hash:   ${res.codeHashHex}`);
+    console.log(`✦ Cell stats:  ${codeCell.bits.length} bits, ${codeCell.refs.length} refs`);
+    console.log(`✦ Output dir:  ${path.relative(projectRoot, outDir)}`);
+    
+  } catch (e) {
+    // ─────── Error handling ───────
+    console.log('\n══════════ COMPILATION FAILED ══════════');
+    console.error('❌ Critical error:');
+    
+    if (e instanceof Error) {
+      console.error(`✦ Message: ${e.message}`);
+      console.error('✦ Action:  Check entry file and dependencies');
+    } else {
+      console.error('✦ Unknown error occurred');
+    }
+    
+    process.exit(1);
+  }
 }
-// ══════════════════════ END ════════════════════

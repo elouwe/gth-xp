@@ -24,6 +24,19 @@ export class Transaction {
     @Column({ name: 'receiver_address' })
     receiverAddress!: string;
 
+    // Добавленные поля
+    @Column({ name: 'contract_address' })
+    contractAddress!: string;
+    
+    @Column({ name: 'contract_owner' })
+    contractOwner!: string;
+    
+    @Column({ name: 'contract_version' })
+    contractVersion!: string;
+    
+    @Column({ name: 'last_op_time', type: 'timestamp' })
+    lastOpTime!: Date;
+    
     @Column({ name: 'status' })
     status!: string;
 

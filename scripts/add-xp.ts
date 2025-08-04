@@ -359,40 +359,49 @@ export async function run(provider: NetworkProvider) {
       }
     }
 
-    // ─────────────── DATABASE UPDATE ────────────────────────
-    if (updated) {
-      console.log('✦ Final balance:', xpBalance.toString());
-      console.log('✦ Updating database records...');
-      try {
-        const userRepo = AppDataSource.getRepository(User);
-        const transactionRepo = AppDataSource.getRepository(DBTransaction); 
-            
-        let dbUser = await userRepo.findOne({ 
-            where: { address: userAddr.toString() },
-            relations: ['transactions'] 
-        });
-        
-        if (!dbUser) {
-          dbUser = new User();
-          dbUser.address = userAddr.toString();
-          dbUser.xp = Number(xpBalance);
-          console.log('✓ Created new user record');
-        } else {
-          dbUser.xp = Number(xpBalance);
-          console.log('✓ Updated existing user record');
-        }
-        
-        await userRepo.save(dbUser);
-        const transaction = new DBTransaction();
-        transaction.opId = opIdUsed.toString();
-        transaction.txHash = txHash; 
-        transaction.amount = 1;
-        transaction.timestamp = new Date();
-        transaction.senderAddress = wallet.address.toString(); 
-        transaction.receiverAddress = userAddr.toString(); 
-        transaction.status = updated ? "success" : "failed";
-        transaction.description = `XP added for user #${user.id}`;
-        transaction.user = dbUser;
+  // ─────────────── DATABASE UPDATE ────────────────────────
+  if (updated) {
+    console.log('✦ Final balance:', xpBalance.toString());
+    console.log('✦ Updating database records...');
+    try {
+      const userRepo = AppDataSource.getRepository(User);
+      const transactionRepo = AppDataSource.getRepository(DBTransaction); 
+          
+      let dbUser = await userRepo.findOne({ 
+          where: { address: userAddr.toString() },
+          relations: ['transactions'] 
+      });
+      
+      if (!dbUser) {
+        dbUser = new User();
+        dbUser.address = userAddr.toString();
+        dbUser.xp = Number(xpBalance);
+        console.log('✓ Created new user record');
+      } else {
+        dbUser.xp = Number(xpBalance);
+        console.log('✓ Updated existing user record');
+      }
+      
+      await userRepo.save(dbUser);
+      
+      const contractAddress = contractAddr.toString();
+      const contractOwner = await opened.getOwner();
+      const contractVersion = (await opened.getVersion()).toString();
+      const lastOpTime = new Date(Number(await opened.getLastOpTime()) * 1000);
+      
+      const transaction = new DBTransaction();
+      transaction.opId = opIdUsed.toString();
+      transaction.txHash = txHash; 
+      transaction.amount = 1;
+      transaction.timestamp = new Date();
+      transaction.senderAddress = wallet.address.toString(); 
+      transaction.receiverAddress = userAddr.toString(); 
+      transaction.status = updated ? "success" : "failed";
+      transaction.description = `XP added for user #${user.id}`;
+      transaction.contractAddress = contractAddress;
+      transaction.contractOwner = contractOwner.toString();
+      transaction.contractVersion = contractVersion;
+      transaction.lastOpTime = lastOpTime;
 
         await transactionRepo.save(transaction);
         console.log('✅ Transaction details saved');

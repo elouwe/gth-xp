@@ -1,7 +1,10 @@
+// scripts/init-db.ts
+// ══════════════════════ IMPORTS ══════════════════════
 import { DataSource } from "typeorm";
 import { User } from '../src/entities/User';
 import { Transaction } from '../src/entities/Transaction'; 
 
+// ══════════════════════ ERROR HANDLER ══════════════════════
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -12,10 +15,12 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
+// ══════════════════════ DATABASE SETUP ══════════════════════
 async function initializeDB() {
-  console.log('\n═════════ ADMIN DATABASE SETUP ═════════');
-  console.log('✦ Connecting as superuser...');
+  console.log('\n═════════════════════ ADMIN DATABASE SETUP ═════════════════════');
   
+  // ─────────────────── ADMIN CONNECTION ────────────────────
+  console.log('✦ Initializing admin connection...');
   const adminDataSource = new DataSource({
     type: "postgres",
     host: "localhost",
@@ -29,20 +34,26 @@ async function initializeDB() {
   try {
     await adminDataSource.initialize();
     console.log('✅ Admin connection established');
-
-    console.log('✦ Creating user "ton_user"...');
+    
+    // ─────────────── USER CREATION ────────────────────────
+    console.log('\n─────── USER CREATION ───────');
     try {
       await adminDataSource.query(`
         CREATE USER ton_user WITH 
           PASSWORD 'SEGMYH8yOd1n'
           CREATEDB;
       `);
-      console.log('✅ User "ton_user" created');
+      console.log('✅ Created database user: ton_user');
     } catch (error) {
-      console.log('✓ User "ton_user" already exists. Skipping creation.');
+      if (getErrorMessage(error).includes('already exists')) {
+        console.log('✓ User "ton_user" already exists');
+      } else {
+        console.error('❌ User creation failed:', getErrorMessage(error));
+      }
     }
 
-    console.log('✦ Creating database "ton_xp_db"...');
+    // ─────────────── DATABASE CREATION ────────────────────
+    console.log('\n─────── DATABASE CREATION ───────');
     try {
       await adminDataSource.query(`
         CREATE DATABASE ton_xp_db
@@ -53,27 +64,33 @@ async function initializeDB() {
           LC_CTYPE = 'C'
           TEMPLATE template0;
       `);
-      console.log('✅ Database created: ton_xp_db');
+      console.log('✅ Created database: ton_xp_db');
     } catch (error) {
       if (getErrorMessage(error).includes('already exists')) {
-        console.log('✓ Database "ton_xp_db" already exists. Skipping creation.');
+        console.log('✓ Database "ton_xp_db" already exists');
       } else {
-        throw error;
+        console.error('❌ Database creation failed:', getErrorMessage(error));
       }
     }
 
-    console.log('✦ Configuring permissions...');
-    await adminDataSource.query(`
-      GRANT ALL PRIVILEGES ON DATABASE ton_xp_db TO ton_user;
-    `);
-    console.log('✅ Permissions granted to ton_user');
+    // ─────────────── PERMISSION SETUP ─────────────────────
+    console.log('\n─────── PERMISSION CONFIG ───────');
+    try {
+      await adminDataSource.query(`
+        GRANT ALL PRIVILEGES ON DATABASE ton_xp_db TO ton_user;
+      `);
+      console.log('✅ Permissions granted to ton_user');
+    } catch (error) {
+      console.error('❌ Permission setup failed:', getErrorMessage(error));
+    }
     
   } catch (error) {
     console.error('\n❌ ADMIN SETUP ERROR:');
     console.error('✦ Message:', getErrorMessage(error));
     console.error('✦ Action: Verify PostgreSQL superuser credentials');
     
-    console.log('\n✦ Trying fallback connection...');
+    // ─────────────── FALLBACK MECHANISM ───────────────────
+    console.log('\n─────── FALLBACK PROCEDURE ───────');
     try {
       const fallbackDataSource = new DataSource({
         type: "postgres",
@@ -86,20 +103,18 @@ async function initializeDB() {
       });
       
       await fallbackDataSource.initialize();
-      console.log('✅ Fallback connection successful');
+      console.log('✅ Fallback connection established');
       
-      await fallbackDataSource.query(`
-        CREATE DATABASE IF NOT EXISTS ton_xp_db
-          WITH 
-          OWNER = ton_user
-          ENCODING = 'UTF8'
-          LC_COLLATE = 'C'
-          LC_CTYPE = 'C'
-          TEMPLATE template0;
-      `);
-      
+      try {
+        await fallbackDataSource.query(`
+          CREATE DATABASE IF NOT EXISTS ton_xp_db;
+        `);
+        console.log('✓ Database verified/created');
+      } catch (dbError) {
+        console.error('❌ Fallback database creation failed:', getErrorMessage(dbError));
+      }
     } catch (fallbackError) {
-      console.error('❌ Fallback failed:', getErrorMessage(fallbackError));
+      console.error('❌ Fallback connection failed:', getErrorMessage(fallbackError));
     }
   } finally {
     if (adminDataSource.isInitialized) {
@@ -108,8 +123,9 @@ async function initializeDB() {
     }
   }
 
-  console.log('\n═════════ USER DATABASE SETUP ═════════');
-  console.log('✦ Connecting as ton_user...');
+  // ─────────────────── USER DATABASE ───────────────────────
+  console.log('\n═════════════════════ USER DATABASE SETUP ═════════════════════');
+  console.log('✦ Initializing user connection...');
   
   const userDataSource = new DataSource({
     type: "postgres",
@@ -118,7 +134,7 @@ async function initializeDB() {
     username: "ton_user",
     password: "SEGMYH8yOd1n",
     database: "ton_xp_db",
-    entities: [User, Transaction], // Добавлена сущность
+    entities: [User, Transaction],
     synchronize: true,
     logging: false,
   });
@@ -126,29 +142,38 @@ async function initializeDB() {
   try {
     await userDataSource.initialize();
     console.log('✅ User connection established');
-
-    console.log('✦ Checking users table...');
-    const tableExistsResult = await userDataSource.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-          AND table_name = 'users' // FIXED: 'user' → 'users'
-      )
-    `);
     
-    const tableExists = tableExistsResult[0]?.exists;
-    if (!tableExists) {
-      console.log('✦ Creating users table...');
-      await userDataSource.synchronize();
-      console.log('✅ Users table created');
-    } else {
-      console.log('✓ Users table already exists');
+    // ─────────────── TABLE VERIFICATION ────────────────────
+    console.log('\n─────── TABLE CONFIGURATION ───────');
+    try {
+      const tableExistsResult = await userDataSource.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+            AND table_name = 'users'
+        )
+      `);
+      
+      if (tableExistsResult[0]?.exists) {
+        console.log('✓ Users table verified');
+      } else {
+        console.log('✦ Creating users table...');
+        await userDataSource.synchronize();
+        console.log('✅ Users table created');
+      }
+    } catch (tableError) {
+      console.error('❌ Table verification failed:', getErrorMessage(tableError));
     }
     
-    console.log('✦ Verifying data access...');
-    const userRepository = userDataSource.getRepository(User);
-    const userCount = await userRepository.count();
-    console.log(`✅ Database operational. Users count: ${userCount}`);
+    // ─────────────── DATA ACCESS TEST ──────────────────────
+    console.log('\n─────── DATA ACCESS TEST ───────');
+    try {
+      const userRepository = userDataSource.getRepository(User);
+      const userCount = await userRepository.count();
+      console.log(`✅ Database operational | Users count: ${userCount}`);
+    } catch (dataError) {
+      console.error('❌ Data access test failed:', getErrorMessage(dataError));
+    }
     
   } catch (error) {
     console.error('\n❌ USER SETUP ERROR:');
@@ -160,12 +185,18 @@ async function initializeDB() {
       console.log('✦ User connection closed');
     }
   }
+  
+  console.log('\n═════════════════════ SETUP COMPLETE ═════════════════════');
+  console.log('✦ Database configuration finalized');
+  console.log('✦ Timestamp:', new Date().toISOString());
 }
 
+// ══════════════════════ EXECUTION ══════════════════════
 initializeDB().catch((error) => {
-  console.error('\n═════════ UNHANDLED ERROR ═════════');
+  console.error('\n═════════════════════ UNHANDLED ERROR ═════════════════════');
   console.error('❌ CRITICAL FAILURE:');
   console.error('✦ Message:', getErrorMessage(error));
   console.error('✦ Action: Review database configuration and network settings');
   process.exit(1);
 });
+// ══════════════════════ END ════════════════════
