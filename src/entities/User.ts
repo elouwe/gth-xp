@@ -18,6 +18,8 @@ export class User {
     @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
     createdAt!: Date;
 
-    @OneToMany(() => Transaction, transaction => transaction.user)
+    @OneToMany(() => Transaction, transaction => transaction.user, {
+        cascade: true 
+    })
     transactions!: Transaction[];
 }

@@ -30,22 +30,22 @@ export class XPContract implements Contract {
 
   static createForDeploy(code: Cell, owner: Address): XPContract {
     const balanceDict = Dictionary.empty(
-      Dictionary.Keys.Buffer(32),
-      Dictionary.Values.BigUint(64)
+      Dictionary.Keys.Buffer(32),           // 256-bit key = addrHash
+      Dictionary.Values.BigUint(64)         // XP as uint64
     );
-    
+
     const userHistoryDict = Dictionary.empty(
-      Dictionary.Keys.Buffer(32),
+      Dictionary.Keys.Buffer(32),           // 256-bit key = addrHash
       Dictionary.Values.Dictionary(
-        Dictionary.Keys.BigUint(256),
-        Dictionary.Values.Cell()
+        Dictionary.Keys.BigUint(256),       // opId = uint256
+        Dictionary.Values.Cell()            // value = cell(amount, ts, opId)
       )
     );
 
     const data = beginCell()
       .storeAddress(owner)
-      .storeUint(4, 16)
-      .storeUint(0, 64)
+      .storeUint(4, 16)   // version
+      .storeUint(0, 64)   // last_op_time
       .storeDict(balanceDict)
       .storeDict(userHistoryDict)
       .endCell();
@@ -57,17 +57,14 @@ export class XPContract implements Contract {
   static async generateUser(): Promise<{ address: string; mnemonic: string }> {
     try {
       const mnemonic = await mnemonicNew();
-      
       const keyPair = await mnemonicToPrivateKey(mnemonic);
-      
-      const wallet = WalletContractV4.create({ 
-        workchain: 0, 
-        publicKey: keyPair.publicKey 
+      const wallet = WalletContractV4.create({
+        workchain: 0,
+        publicKey: keyPair.publicKey,
       });
-      
       return {
         address: wallet.address.toString(),
-        mnemonic: mnemonic.join(' ')
+        mnemonic: mnemonic.join(' '),
       };
     } catch (error) {
       console.error('Failed to generate user:', error);
@@ -78,24 +75,41 @@ export class XPContract implements Contract {
   async sendDeploy(provider: ContractProvider, via: Sender) {
     await provider.internal(via, {
       value: toNano('0.1'),
-      sendMode: SendMode.PAY_GAS_SEPARATELY,
+      sendMode: 1,
       body: beginCell().endCell(),
     });
   }
 
+  async sendInit(provider: ContractProvider, via: Sender) {
+    await provider.internal(via, {
+      value: toNano('0.05'),
+      sendMode: 1, // ✅
+      body: beginCell().endCell(),
+    });
+  }
+
+  async isInitialized(provider: ContractProvider): Promise<boolean> {
+    try {
+      const state = await provider.getState();
+      return state.state.type === 'active';
+    } catch {
+      return false;
+    }
+  }
+
   getAddXPMessageBody(options: { user: Address; amount: bigint; opId?: bigint }): Cell {
     const opcode = options.opId ? XPContract.OP_ADD_XP_WITH_ID : XPContract.OP_ADD_XP;
-    const body = beginCell()
+
+    const b = beginCell()
       .storeUint(opcode, 32)
       .storeUint(0, 4)
       .storeAddress(options.user)
       .storeUint(options.amount, 64);
 
     if (options.opId) {
-      body.storeUint(options.opId, 256);
+      b.storeUint(options.opId, 256);
     }
-
-    return body.endCell();
+    return b.endCell();
   }
 
   async sendAddXP(
@@ -104,10 +118,11 @@ export class XPContract implements Contract {
     options: { user: Address; amount: bigint; opId?: bigint }
   ) {
     const body = this.getAddXPMessageBody(options);
-
+    console.log('addXP body bits/refs:', body.bits.length, body.refs.length, 'opId?', !!options.opId);
     await provider.internal(via, {
-      value: toNano('1'), 
-      body: body,
+      value: toNano('0.05'),
+      sendMode: 1,
+      body,
     });
   }
 
@@ -123,30 +138,27 @@ export class XPContract implements Contract {
 
     await provider.internal(via, {
       value: toNano('0.5'),
-      body: body,
+      // sendMode: SendMode.PAY_GAS_SEPARATELY,
+      sendMode: 1,
+      body,
     });
   }
 
   async getXP(provider: ContractProvider, user: Address): Promise<bigint> {
     const args = beginCell().storeAddress(user).endCell();
-    const res = await provider.get('get_xp', [
-      { type: 'slice', cell: args },
-    ]);
+    const res = await provider.get('get_xp', [{ type: 'slice', cell: args }]);
     return res.stack.readBigNumber();
   }
 
   async getUserHistory(
-    provider: ContractProvider, 
+    provider: ContractProvider,
     user: Address
   ): Promise<Cell | null> {
     const args = beginCell().storeAddress(user).endCell();
-    const res = await provider.get('get_user_history', [
-      { type: 'slice', cell: args },
-    ]);
-    
+    const res = await provider.get('get_user_history', [{ type: 'slice', cell: args }]);
     try {
       return res.stack.readCell();
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -168,9 +180,7 @@ export class XPContract implements Contract {
 
   async getXPKey(provider: ContractProvider, user: Address): Promise<bigint> {
     const args = beginCell().storeAddress(user).endCell();
-    const res = await provider.get('get_xp_key', [
-      { type: 'slice', cell: args },
-    ]);
+    const res = await provider.get('get_xp_key', [{ type: 'slice', cell: args }]);
     return res.stack.readBigNumber();
   }
 }

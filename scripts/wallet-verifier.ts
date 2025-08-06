@@ -1,9 +1,12 @@
+// scripts/wallet-verifier.ts
+// ══════════════════════ IMPORTS ══════════════════════
 import { Address, beginCell } from '@ton/core';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import { WalletContractV4 } from '@ton/ton';
 import { readFileSync } from 'fs';
 import * as readline from 'readline';
 
+// ===================== INTERFACES =====================
 interface WalletUser {
   id: number;
   address: string;
@@ -16,18 +19,19 @@ interface WalletsFile {
   users?: WalletUser[];
 }
 
+// ===================== UTILITY SETUP =====================
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
 
-// ============================== VERIFICATION FUNCTIONS ==============================
+// ===================== VERIFICATION FUNCTIONS =====================
 async function verifyWalletData(data: WalletUser) {
   console.log('\n═════════ VERIFICATION STARTED ═════════');
   console.log(`✦ User ID: #${data.id}`);
   console.log(`✦ Address: ${data.address}`);
   
-  // Section 1: Mnemonic Verification
+  // ─────── Mnemonic Verification ───────
   console.log('\n═════════ MNEMONIC VERIFICATION ═════════');
   const words = data.mnemonic.split(' ');
   if (words.length !== 24) {
@@ -36,7 +40,7 @@ async function verifyWalletData(data: WalletUser) {
   }
   console.log('✅ PASSED: 24-word mnemonic format');
   
-  // Section 2: Public Key Verification
+  // ─────── Public Key Verification ───────
   console.log('\n═════════ PUBLIC KEY VERIFICATION ═════════');
   const pubKeyRegex = /^[0-9a-f]{64}$/i;
   if (!pubKeyRegex.test(data.publicKey)) {
@@ -45,7 +49,7 @@ async function verifyWalletData(data: WalletUser) {
   }
   console.log('✅ PASSED: 64-character hex format');
   
-  // Section 3: Address Format Verification
+  // ─────── Address Format Verification ───────
   console.log('\n═════════ ADDRESS FORMAT VERIFICATION ═════════');
   const addressRegex = /^[a-zA-Z0-9_-]{48}$/;
   const bounceValid = addressRegex.test(data.address);
@@ -59,12 +63,12 @@ async function verifyWalletData(data: WalletUser) {
   }
   
   try {
-    // Section 4: Key Derivation
+    // ─────── Key Derivation ───────
     console.log('\n═════════ KEY DERIVATION ═════════');
     const keyPair = await mnemonicToPrivateKey(words);
     console.log('✅ PASSED: Keys derived from mnemonic');
     
-    // Section 5: Public Key Match
+    // ─────── Public Key Match ───────
     console.log('\n═════════ PUBLIC KEY MATCH ═════════');
     const actualPubKeyHex = keyPair.publicKey.toString('hex');
     if (actualPubKeyHex !== data.publicKey) {
@@ -75,7 +79,7 @@ async function verifyWalletData(data: WalletUser) {
     }
     console.log('✅ PASSED: Public keys match');
     
-    // Section 6: Address Generation
+    // ─────── Address Generation ───────
     console.log('\n═════════ ADDRESS GENERATION ═════════');
     const wallet = WalletContractV4.create({
       workchain: 0,
@@ -85,7 +89,7 @@ async function verifyWalletData(data: WalletUser) {
     const generatedBounceable = wallet.address.toString();
     const generatedNonBounce = wallet.address.toString({ urlSafe: true, bounceable: false });
     
-    // Section 7: Address Prefix Check
+    // ─────── Address Prefix Check ───────
     console.log('\n═════════ ADDRESS PREFIX CHECK ═════════');
     const validBounceablePrefixes = ['E', 'k'];
     const validNonBounceablePrefixes = ['U', '0'];
@@ -100,7 +104,7 @@ async function verifyWalletData(data: WalletUser) {
       return false;
     }
     
-    // Section 8: Address Match Verification
+    // ─────── Address Match Verification ───────
     console.log('\n═════════ ADDRESS MATCH VERIFICATION ═════════');
     const bounceMatch = data.address === generatedBounceable;
     const nonBounceMatch = data.addressNonBounce === generatedNonBounce;
@@ -121,7 +125,7 @@ async function verifyWalletData(data: WalletUser) {
       return false;
     }
     
-    // Section 9: Checksum Validation
+    // ─────── Checksum Validation ───────
     console.log('\n═════════ CHECKSUM VALIDATION ═════════');
     try {
       Address.parse(data.address);
@@ -132,7 +136,7 @@ async function verifyWalletData(data: WalletUser) {
       return false;
     }
     
-    // Section 10: Address Consistency
+    // ─────── Address Consistency ───────
     console.log('\n═════════ ADDRESS CONSISTENCY ═════════');
     const parsedBounceable = Address.parse(data.address);
     const parsedNonBounce = Address.parse(data.addressNonBounce);
@@ -143,7 +147,7 @@ async function verifyWalletData(data: WalletUser) {
     }
     console.log('✅ PASSED: Both addresses represent same wallet');
     
-    // Section 11: Workchain Validation
+    // ─────── Workchain Validation ───────
     console.log('\n═════════ WORKCHAIN VALIDATION ═════════');
     if (parsedBounceable.workChain !== 0) {
       console.error(`❌ FAILED: Expected workchain 0, got ${parsedBounceable.workChain}`);
@@ -151,7 +155,7 @@ async function verifyWalletData(data: WalletUser) {
     }
     console.log('✅ PASSED: Workchain 0');
     
-    // Section 12: Hash Verification
+    // ─────── Hash Verification ───────
     console.log('\n═════════ HASH VERIFICATION ═════════');
     const actualHash = parsedBounceable.hash.toString('hex');
     const expectedHash = wallet.address.hash.toString('hex');
@@ -164,9 +168,9 @@ async function verifyWalletData(data: WalletUser) {
     }
     console.log('✅ PASSED: Address hash matches');
     
-    // Final Result
+    // ─────── Final Verification Result ───────
     console.log('\n═════════ VERIFICATION COMPLETE ═════════');
-    console.log('ALL 12 VERIFICATIONS PASSED SUCCESSFULLY!');
+    console.log('✅ ALL 12 VERIFICATIONS PASSED SUCCESSFULLY!');
     return true;
     
   } catch (error) {
@@ -176,12 +180,12 @@ async function verifyWalletData(data: WalletUser) {
   }
 }
 
-// ============================== MAIN EXECUTION ==============================
+// ===================== MAIN EXECUTION =====================
 async function main() {
   console.log('\n══════════ WALLET VERIFIER ══════════');
   
   try {
-    // Load wallet data
+    // ─────── Data Loading ───────
     console.log('\n✦ Loading wallet data...');
     const rawData = readFileSync('wallets.json', 'utf8');
     const walletsData: WalletsFile = JSON.parse(rawData);
@@ -192,13 +196,13 @@ async function main() {
     }
     console.log(`✅ Loaded ${walletsData.users.length} users`);
     
-    // Display user list
+    // ─────── User Selection ───────
     console.log('\n═════════ AVAILABLE USERS ═════════');
     walletsData.users.forEach(user => {
       console.log(`#${user.id.toString().padEnd(3)} - ${user.address}`);
     });
     
-    // User selection
+    // ─────── ID Input Handling ───────
     rl.question('\n✦ Enter user ID to verify: ', async (userId) => {
       const startTime = Date.now();
       const id = parseInt(userId, 10);
@@ -209,7 +213,7 @@ async function main() {
         return;
       }
       
-      // Find user
+      // ─────── User Selection ───────
       const user = walletsData.users?.find(u => u.id === id);
       
       if (!user) {
@@ -220,11 +224,11 @@ async function main() {
       
       console.log(`\n✦ Selected user: #${user.id}`);
       
-      // Perform verification
+      // ─────── Verification Process ───────
       const isValid = await verifyWalletData(user);
       const duration = ((Date.now() - startTime) / 1000).toFixed(2);
       
-      // Final result
+      // ─────── Final Report ───────
       console.log('\n═════════ FINAL RESULT ═════════');
       console.log(`✦ Verification time: ${duration} seconds`);
       console.log(`✦ User #${user.id}: ${isValid ? '✅ VALID' : '❌ INVALID'}`);
@@ -240,5 +244,5 @@ async function main() {
   }
 }
 
-// Start the verification process
 main();
+// ══════════════════════ END ════════════════════

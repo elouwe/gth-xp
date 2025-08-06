@@ -1,16 +1,24 @@
 // scripts/create-wallets.ts
+// ===================== IMPORTS =====================
+// ─────── Core libraries ───────
 import { compile } from '@ton/blueprint';
 import { XPContract } from '../wrappers/XPContract';
 import { Address, WalletContractV4, TonClient, toNano } from '@ton/ton';
 import { mnemonicNew, mnemonicToWalletKey } from '@ton/crypto';
-import { writeFileSync } from 'fs';
 import { fromNano } from '@ton/core';
 
+// ─────── File system utilities ───────
+import { writeFileSync } from 'fs';
+
+// ===================== UTILITY FUNCTIONS =====================
+// ─────── Delay helper ───────
 function delay(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ===================== MAIN EXECUTION =====================
 export async function run() {
+    // ─────── Owner wallet creation ───────
     console.log('\n═════════ OWNER WALLET ═════════');
     console.log('✦ Generating new owner wallet...');
     
@@ -32,6 +40,7 @@ export async function run() {
     console.log('✦ Mnemonic:', ownerMnemonic.join(' '));
     console.log('✦ IMPORTANT: Save this mnemonic phrase in a secure place!');
 
+    // ─────── Network configuration ───────
     const isTestnet = process.argv.includes('--testnet');
     const network = isTestnet ? 'testnet' : 'mainnet';
     
@@ -44,6 +53,7 @@ export async function run() {
             : 'https://testnet.toncenter.com/api/v2/jsonRPC'
     });
     
+    // ─────── Balance check ───────
     console.log('\n═════════ BALANCE ═════════');
     const balance = await client.getBalance(ownerAddress);
     const balanceTON = fromNano(balance);
@@ -62,11 +72,13 @@ export async function run() {
         return;
     }
 
+    // ─────── Contract compilation ───────
     console.log('\n═════════ COMPILATION ═════════');
     console.log('✦ Compiling contract...');
     const code = await compile('xp');
     console.log('✅ Contract compiled');
     
+    // ─────── Deployment process ───────
     console.log('\n═════════ DEPLOYMENT ═════════');
     console.log('✦ Deploying contract...');
     
@@ -84,6 +96,7 @@ export async function run() {
         throw error;
     }
 
+    // ─────── Deployment confirmation ───────
     console.log('\n═════════ CONFIRMATION ═════════');
     console.log('✦ Waiting for deployment confirmation...');
     
@@ -102,6 +115,7 @@ export async function run() {
         if (i < 30) process.stdout.write(', ');
     }
     
+    // ─────── Deployment timeout handling ───────
     if (!deployed) {
         const explorerUrl = isTestnet
             ? `https://testnet.tonscan.org/address/${contractAddress.toString()}`
@@ -112,6 +126,7 @@ export async function run() {
         return;
     }
 
+    // ─────── Data saving ───────
     console.log('\n═════════ SAVING DATA ═════════');
     const walletsData = {
         owner: {
@@ -125,8 +140,16 @@ export async function run() {
     
     writeFileSync('wallets.json', JSON.stringify(walletsData, null, 2));
     console.log('✅ Data saved to wallets.json');
+    
+    // ─────── Completion ───────
     console.log('\n═════════ COMPLETE ═════════');
     console.log('✦ Deployment successful!');
 }
 
-run().catch(console.error);
+// ===================== ERROR HANDLER =====================
+run().catch(error => {
+    console.error('\n❌ UNHANDLED ERROR:');
+    console.error('✦ Error message:', error.message);
+    process.exit(1);
+});
+// ══════════════════════ END ════════════════════

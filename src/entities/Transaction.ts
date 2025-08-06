@@ -24,7 +24,6 @@ export class Transaction {
     @Column({ name: 'receiver_address' })
     receiverAddress!: string;
 
-    // Добавленные поля
     @Column({ name: 'contract_address' })
     contractAddress!: string;
     
@@ -43,6 +42,8 @@ export class Transaction {
     @Column({ name: 'description', type: 'text', nullable: true })
     description!: string;
 
-    @ManyToOne(() => User, user => user.transactions)
+    @ManyToOne(() => User, user => user.transactions, { 
+        onDelete: 'CASCADE'  
+    })
     user!: User;
 }

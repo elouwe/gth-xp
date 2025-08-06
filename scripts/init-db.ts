@@ -135,42 +135,42 @@ async function initializeDB() {
     password: "SEGMYH8yOd1n",
     database: "ton_xp_db",
     entities: [User, Transaction],
-    synchronize: true,
-    logging: false,
+    synchronize: false, // Disable auto-sync
+    logging: true,
   });
 
   try {
     await userDataSource.initialize();
     console.log('✅ User connection established');
     
-    // ─────────────── TABLE VERIFICATION ────────────────────
-    console.log('\n─────── TABLE CONFIGURATION ───────');
+    // ─────────────── DATABASE RESET ────────────────────────
+    console.log('\n─────── DATABASE RESET ───────');
     try {
-      const tableExistsResult = await userDataSource.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-            AND table_name = 'users'
-        )
-      `);
+      // Reset entire database schema
+      await userDataSource.dropDatabase();
+      console.log('✓ Dropped existing tables');
       
-      if (tableExistsResult[0]?.exists) {
-        console.log('✓ Users table verified');
-      } else {
-        console.log('✦ Creating users table...');
-        await userDataSource.synchronize();
-        console.log('✅ Users table created');
-      }
-    } catch (tableError) {
-      console.error('❌ Table verification failed:', getErrorMessage(tableError));
+      await userDataSource.synchronize();
+      console.log('✅ Recreated database schema');
+    } catch (resetError) {
+      console.error('❌ Database reset failed:', getErrorMessage(resetError));
     }
     
     // ─────────────── DATA ACCESS TEST ──────────────────────
     console.log('\n─────── DATA ACCESS TEST ───────');
     try {
       const userRepository = userDataSource.getRepository(User);
-      const userCount = await userRepository.count();
-      console.log(`✅ Database operational | Users count: ${userCount}`);
+      const user = new User();
+      user.address = "test_address";
+      user.xp = 100;
+      await userRepository.save(user);
+      
+      const savedUser = await userRepository.findOneBy({ address: "test_address" });
+      if (savedUser) {
+        console.log(`✅ Database operational | Test user XP: ${savedUser.xp}`);
+      } else {
+        console.error('❌ Data access test failed: User not found');
+      }
     } catch (dataError) {
       console.error('❌ Data access test failed:', getErrorMessage(dataError));
     }
